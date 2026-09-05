@@ -1,8 +1,19 @@
-# Multi-Provider WireGuard VPN Manager for Linux (NordVPN, PIA, Mullvad, Proton, Custom)
----
-A lightweight, high-performance Kodi service addon for standalone Linux distributions (Debian, Mint, Ubuntu, and LMDE).
+![Last Commit](https://shields.io/github/last-commit/BrodjagaRatnik/service.wireguard.manager)
+![License](https://img.shields.io/github/license/BrodjagaRatnik/service.wireguard.manager)
+## ⚡ WireGuard VPN Manager for Linux Development Testing Staging
+### 🧪 Staging Area & Test Deployments
+Welcome to the development and staging repository for the **Kodi WireGuard VPN Manager**. This staging area handles active routing optimizations, core network stability patches, and dynamic IPv6 DNS leak protections specifically tailored for standalone Linux distributions (Debian, Mint, Ubuntu, and LMDE).
 
-Built entirely in pure Python with a memory-isolated, lazy-loaded architecture, this tool manages WireGuard connections natively via NetworkManager (`nmcli`). It features a zero-leak, post-connect firewall killswitch with automatic local subnet routing to guarantee complete data privacy without blocking cryptographic handshake authentication tokens. Fully architecture-independent, it delivers a rock-solid experience that runs flawlessly on x86_64 HTPCs and standalone Debian installations. Includes an automated desktop emergency recovery tool to instantly purge stuck kernel routing states.
+---
+### 📥 Download Testing Folders
+To test the upcoming development changes, download or sync the respective testing directory based on your current validation environment:
+```text
+📁 service.wireguard.manager.linux
+├── 📂 alpha/         <-- Raw system engine tracking. Highly volatile. Expect tracebacks.
+├── 📂 beta/          <-- Feature-complete binaries targeting native NetworkManager implementations.
+└── 📂 going_silver/  <-- Polished release candidates before mainline master deployment.
+```
+---
   
 > [!NOTE]
 > ### ⚠️ ACTIVE DEBUGGING STAGE – DISTRO TESTERS WANTED!
