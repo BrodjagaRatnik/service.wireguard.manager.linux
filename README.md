@@ -2,7 +2,7 @@
 ![Size](https://img.shields.io/github/repo-size/BrodjagaRatnik/service.wireguard.manager.linux)
 ![Last Commit](https://shields.io/github/last-commit/BrodjagaRatnik/service.wireguard.manager.linux)
 ![Build Status](https://github.com/BrodjagaRatnik/service.wireguard.manager.linux/actions/workflows/test_addon.yml/badge.svg)
-[![CodeQL](https://github.com/BrodjagaRatnik/service.wireguard.manager.linux/actions/workflows/codeql.yml/badge.svg?branch=main)](https://github.com/BrodjagaRatnik/service.wireguard.manager/actions/workflows/codeql.yml)
+[![CodeQL](https://github.com/BrodjagaRatnik/service.wireguard.manager.linux/actions/workflows/codeql.yml/badge.svg?branch=main)](https://github.com/BrodjagaRatnik/service.wireguard.manager.linux/actions/workflows/codeql.yml)
 ---
 # Multi-Provider WireGuard VPN Manager for Linux (NordVPN, PIA, Mullvad, Proton, Custom)
 ---
