@@ -2,6 +2,9 @@ name: Kodi Addon Check & Lint
 
 on: [push, pull_request]
 
+permissions:
+  contents: read
+
 jobs:
   kodi-check:
     runs-on: ubuntu-latest
