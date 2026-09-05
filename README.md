@@ -6,4 +6,10 @@
 ![Size](https://img.shields.io/github/repo-size/BrodjagaRatnik/service.wireguard.manager.linux)
 ![License](https://img.shields.io/github/license/BrodjagaRatnik/service.wireguard.manager.linux)
 ---
-Advanced, leak-free WireGuard and VPN connection manager add-on for Kodi on standalone Linux environments (Debian, Ubuntu, Mint, LMDE). Features automated NetworkManager (nmcli) integration, dynamic post-connect killswitch firewalls, airtight DNS priority enforcement, and asynchronous multi-profile bulk folder configurations.
+# Multi-Provider WireGuard VPN Manager for Linux (NordVPN, PIA, Mullvad, Proton, Custom)
+
+A lightweight, high-performance Kodi service addon for standalone Linux distributions (Debian, Mint, Ubuntu, and LMDE).
+
+Built entirely in pure Python with a memory-isolated, lazy-loaded architecture, this tool manages WireGuard connections natively via NetworkManager (`nmcli`). It features a zero-leak, post-connect firewall killswitch with automatic local subnet routing to guarantee complete data privacy without blocking cryptographic handshake authentication tokens. 
+
+Fully architecture-independent, it delivers a rock-solid experience that runs flawlessly on x86_64 HTPCs and standalone Debian installations. Includes an automated desktop emergency recovery tool to instantly purge stuck kernel routing states.
