@@ -1,10 +1,9 @@
+![Release](https://img.shields.io/github/v/release/BrodjagaRatnik/service.wireguard.manager.linux)
+![Size](https://img.shields.io/github/repo-size/BrodjagaRatnik/service.wireguard.manager.linux)
 ![Last Commit](https://shields.io/github/last-commit/BrodjagaRatnik/service.wireguard.manager.linux)
 ![Build Status](https://github.com/BrodjagaRatnik/service.wireguard.manager.linux/actions/workflows/test_addon.yml/badge.svg)
 ---
 # Multi-Provider WireGuard VPN Manager for Linux (NordVPN, PIA, Mullvad, Proton, Custom)
-![Release](https://img.shields.io/github/v/release/BrodjagaRatnik/service.wireguard.manager.linux)
-![Size](https://img.shields.io/github/repo-size/BrodjagaRatnik/service.wireguard.manager.linux)
-![License](https://img.shields.io/github/license/BrodjagaRatnik/service.wireguard.manager.linux)
 ---
 A lightweight, high-performance Kodi service addon for standalone Linux distributions (Debian, Mint, Ubuntu, and LMDE).
 
