@@ -1,4 +1,3 @@
-[![CodeQL Advanced](https://github.com/BrodjagaRatnik/service.wireguard.manager.linux/actions/workflows/codeql.yml/badge.svg?branch=main)](https://github.com/BrodjagaRatnik/service.wireguard.manager.linux/actions/workflows/codeql.yml)
 ![Last Commit](https://shields.io/github/last-commit/BrodjagaRatnik/service.wireguard.manager.linux)
 ![Build Status](https://github.com/BrodjagaRatnik/service.wireguard.manager.linux/actions/workflows/test_addon.yml/badge.svg)
 ---
