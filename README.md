@@ -13,6 +13,12 @@ A lightweight, high-performance Kodi service addon for standalone Linux distribu
 
 Built entirely in pure Python with a memory-isolated, lazy-loaded architecture, this tool manages WireGuard connections natively via NetworkManager (`nmcli`). It features a zero-leak, post-connect firewall killswitch with automatic local subnet routing to guarantee complete data privacy without blocking cryptographic handshake authentication tokens. Fully architecture-independent, it delivers a rock-solid experience that runs flawlessly on x86_64 HTPCs and standalone Debian installations. Includes an automated desktop emergency recovery tool to instantly purge stuck kernel routing states.
 
+---
+
+> [!NOTE]
+> ### ⚠️ — DISTRO TESTERS WANTED!
+> The NetworkManager (`nmcli`) core loop is fully validated on Debian and Mint systems. We are actively **seeking testers for other Linux distributions** (Fedora, Arch, openSUSE, Gentoo) to ensure compatibility with varying kernel routing structures and firewall frameworks.
+
 ## Providers
 
 - **NordVPN** (NordLynx)
@@ -62,12 +68,6 @@ Bug reports and feature requests:
 Please include the addon version (from `addon.xml`), relevant `kodi.log` lines
 around the event, and the output of `ls /sys/class/net` and
 `sudo iptables -L -n` if the issue involves networking.
-
----
-
-> [!NOTE]
-> ### ⚠️ EARLY RELEASE — DISTRO TESTERS WANTED!
-> The NetworkManager (`nmcli`) core loop is fully validated on Debian and Mint systems. We are actively **seeking testers for other Linux distributions** (Fedora, Arch, openSUSE, Gentoo) to ensure compatibility with varying kernel routing structures and firewall frameworks.
 
 ---
 *Created by Doemela*
