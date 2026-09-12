@@ -5,7 +5,7 @@
 
 ---
 
-# Multi-Provider WireGuard VPN Manager for Linux (NordVPN, PIA, Mullvad, Custom)
+# Multi-Provider WireGuard VPN Manager for Linux Desktop (NordVPN, PIA, Mullvad, Custom)
 
 ---
 
@@ -48,7 +48,7 @@ present, so this suffices:
 
 ## Installation
 
-Install the addon from [Doemela's Kodi repo](https://github.com/BrodjagaRatnik/doemela-kodi-repo), then pick a provider, import your credentials, and connect via the addon menu.
+Install the addon from [Doemela's Kodi repo](https://github.com/BrodjagaRatnik/doemela-kodi-repo), then pick a provider, import your credentials, and connect via the addon menu. See [Installation & Setup](https://github.com/BrodjagaRatnik/service.wireguard.manager.linux/wiki/Installation-&-Setup).
 
 ## Troubleshooting & documentation
 
