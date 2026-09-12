@@ -29,7 +29,7 @@ body:
         - "Raspberry Pi 5"
         - "Raspberry Pi 4"
         - "X86_64 Generic PC"
-        - "Other ARM Device"
+        - "Other Device"
     validations:
       required: true
 
