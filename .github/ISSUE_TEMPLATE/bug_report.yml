@@ -1,5 +1,5 @@
 name: 🐛 Bug Report
-description: Report a bug or connection loop in the WireGuard Manager add-on.
+description: Report a bug or connection loop in the WireGuard Manager (Linux Desktop) add-on.
 labels: ["bug", "triage"]
 body:
   - type: markdown
@@ -36,11 +36,11 @@ body:
   - type: dropdown
     id: os_version
     attributes:
-      label: 💿 Operating System / LibreELEC Version
+      label: 💿 Operating System
       options:
-        - "LibreELEC 12 (Kodi 21 Omega)"
-        - "LibreELEC 11 (Kodi 20 Nexus)"
-        - "CoreELEC (Kodi 21 Omega)"
+        - "Debian"
+        - "Ubuntu"
+        - "LMDE"
         - "Other / Custom Linux Build"
     validations:
       required: true
@@ -52,6 +52,7 @@ body:
       description: Which provider configuration is experiencing the bug?
       options:
         - "Private Internet Access (PIA)"
+        - "Mullvad"
         - "NordVPN"
         - "Custom (.config/.conf file)"
     validations:
@@ -71,9 +72,9 @@ body:
     attributes:
       label: 📋 Filtered Log Pastebin Link
       description: |
-        Run this command via SSH: `grep -i "service.wireguard.manager" /storage/.kodi/temp/kodi.log | pastebinit`
+        Run this command via SSH: `cat ~/.kodi/temp/kodi.log | grep -iE "service.wireguard.manager" | nc termbin.com 9999`
         Paste the generated link below.
-      placeholder: "https://ubuntu.com or https://kodi.tv"
+      placeholder: "https://termbin.com/"
     validations:
       required: true
 
