@@ -1,0 +1,99 @@
+#!/usr/bin/env bash
+
+if [ "$EUID" -ne 0 ]; then
+  echo "Error: This script must be run as root (use sudo)."
+  exit 1
+fi
+
+echo "=== STARTING NETWORK EMERGENCY RECOVERY ==="
+
+ACTIVE_CON_NAME=$(nmcli -t -f NAME,TYPE connection show --active | grep -E "wireless|ethernet" | cut -d: -f1 | head -n1)
+if [ -n "$ACTIVE_CON_NAME" ]; then
+    CACHED_SEARCH=$(nmcli -g ipv4.dns-search connection show "$ACTIVE_CON_NAME" 2>/dev/null | head -n1)
+fi
+
+echo "[1/6] Purging all zombie VPN/WireGuard tunnels and profiles..."
+
+nmcli -t -f NAME,TYPE connection show --active | grep ':wireguard' | cut -d: -f1 | while read -r profile_name; do
+    nmcli connection down id "$profile_name" >/dev/null 2>&1
+done
+
+wg show interfaces 2>/dev/null | xargs -r -n1 ip link delete
+nmcli -t -f NAME,TYPE connection show | grep ':wireguard' | cut -d: -f1 | while read -r profile_name; do
+    nmcli connection delete id "$profile_name" >/dev/null 2>&1
+done
+
+echo "[2/6] Stripping dead DNS locks from active hardware interfaces..."
+nmcli -t -f NAME,TYPE,UUID connection show | grep -E ':wireless|:ethernet' | cut -d: -f3 | while read -r uuid; do
+    nmcli connection modify "$uuid" ipv4.dns "" ipv6.dns "" ipv4.dns-priority 0 ipv6.dns-priority 0 >/dev/null 2>&1
+done
+
+echo "[3/6] Purging stale DHCP lease files..."
+rm -f /var/lib/dhcp/dhclient.* 2>/dev/null
+rm -f /var/lib/NetworkManager/dhclient-* 2>/dev/null
+
+echo "[4/6] Restarting NetworkManager system daemon..."
+systemctl restart NetworkManager
+sleep 4
+
+echo "[5/6] Wiping kernel rule database and rebuilding paths..."
+ip rule flush 2>/dev/null
+ip rule add lookup local priority 0 2>/dev/null
+ip rule add lookup main priority 32766 2>/dev/null
+ip rule add lookup default priority 32767 2>/dev/null
+ip route flush cache
+
+echo "[6/6] Purging active firewall blocks and stuck killswitches..."
+iptables -P INPUT ACCEPT
+iptables -P OUTPUT ACCEPT
+iptables -P FORWARD ACCEPT
+iptables -F
+iptables -X
+iptables -t nat -F
+iptables -t nat -X
+nft flush ruleset >/dev/null 2>&1
+
+echo "=== NETWORK RECOVERY SUCCESSFUL ==="
+echo "Testing domain name resolution (DNS)..."
+if nslookup google.com >/dev/null 2>&1; then
+    echo "Status: INTERNET AND DNS ARE FULLY ONLINE"
+else
+    echo "Status: NetworkManager DNS sync delayed. Reapplying live router configurations..."
+    gw_ip=$(ip route show default | grep -oE "via [0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}" | cut -d' ' -f2 | head -n1)
+
+    nmcli -t -f DEVICE,TYPE device status | grep -E 'wireless|ethernet' | cut -d: -f1 | while read -r dev; do
+        nmcli device reapply "$dev" >/dev/null 2>&1
+    done
+    sleep 4
+
+    if nslookup google.com >/dev/null 2>&1; then
+        echo "Status: INTERNET AND DNS ARE FULLY ONLINE (via Device Reapply)"
+    else
+        echo "Status: Connection profile refresh failed. Forcing manual router injection..."
+        active_dev=$(ip route show default | grep -oE "dev [a-z0-9]+" | head -n1 | cut -d' ' -f2)
+        router_domain=""
+        if [ -n "$active_con_name" ]; then
+            router_domain=$(nmcli -g ipv4.dns-search connection show "$active_con_name" 2>/dev/null | head -n1)
+        fi
+        if [ -z "$router_domain" ] || [ "$router_domain" == "--" ]; then
+            router_domain=$(grep -hs '^domain ' /var/lib/NetworkManager/*.lease /run/NetworkManager/*.lease 2>/dev/null | awk '{print $2}' | head -n1)
+        fi
+        if [ -n "$router_domain" ]; then
+            header_line="search $router_domain"
+        else
+            header_line=""
+        fi
+        if [ -n "$gw_ip" ]; then
+            echo -e "$header_line\nnameserver $gw_ip\nnameserver 1.1.1.1" | sed '/^$/d' > /etc/resolv.conf
+        else
+            echo -e "nameserver 1.1.1.1\nnameserver 9.9.9.9" > /etc/resolv.conf
+        fi
+
+        sleep 1
+        if nslookup google.com >/dev/null 2>&1; then
+            echo "Status: INTERNET AND DNS ARE FULLY ONLINE (via Dynamic Router Injection)"
+        else
+            echo "Status: PIPELINE BLOCKED - Check physical router state."
+        fi
+    fi
+fi

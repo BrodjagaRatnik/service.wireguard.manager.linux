@@ -1,0 +1,11 @@
+CHANGELOG
+=========
+
+v1.0.1 (2026-09-12)
+
+- Initial dedicated release for Linux Desktop and Debian/LMDE architectures. This is the first release of the addon built specifically for Linux Desktop environments, branching away from the embedded LibreELEC target.
+- Structural migration from legacy ConnMan engine over to native NetworkManager (nmcli) configuration. All tunnel bring-up, teardown and profile management now goes through nmcli, removing the ConnMan dependency entirely.
+- Converted provider blueprint routines to output generic WireGuard .conf profile schemas. Provider templates (NordVPN, PIA, Custom) now emit standard WireGuard configuration files that can be imported by any compatible tool.
+- Shifted systemd watchdog services to unprivileged user-space systemd execution loops. The watchdog now runs as a plain user unit without root requirements, making it safer on multi-user desktop systems.
+- Replaced hardcoded physical network device references with global dynamic interface sniffing utilities. Network devices are now discovered at runtime instead of being pinned to fixed interface names like enp3s0 or wlp2s0.
+

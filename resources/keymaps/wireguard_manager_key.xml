@@ -1,0 +1,10 @@
+<keymap>
+  <global>
+    <keyboard>
+      <f11>RunScript(service.wireguard.manager.linux,manual)</f11>
+    </keyboard>
+    <remote>
+      <blue>RunScript(service.wireguard.manager.linux,manual)</blue>
+    </remote>
+  </global>
+</keymap>
