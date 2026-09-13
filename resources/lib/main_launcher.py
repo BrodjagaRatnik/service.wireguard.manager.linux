@@ -189,6 +189,7 @@ def run(argv):
                     last_pretty = "Custom Profile"
                     last_path = ""
                     last_token = ""
+                    cancelled = False
                     files_to_process = []
 
                     if os.path.isdir(selection):
@@ -201,26 +202,44 @@ def run(argv):
                     else:
                         files_to_process.append(selection)
 
-                    for full_path in files_to_process:
-                        if custom.update(full_path, target_config_dir) is True:
-                            imported_count += 1
+                    if files_to_process:
+                        total_files = len(files_to_process)
+                        progress_dlg = xbmcgui.DialogProgress()
+                        progress_dlg.create("Importing WireGuard Profiles",
+                                            "%d profiles queued" % total_files)
+
+                        for idx, full_path in enumerate(files_to_process):
+                            if progress_dlg.iscanceled():
+                                log_message("Main Launcher: Custom import cancelled by user.", 2)
+                                cancelled = True
+                                break
+
                             f_item = os.path.basename(full_path)
-                            raw_name = f_item.lower()
-                            clean_name = raw_name.replace(".config", "").replace(".conf", "")
-                            clean_name = clean_name.replace("_", " ").replace("-", " ")
+                            status_line = "Importing %d of %d: %s" % (idx + 1, total_files, f_item)
+                            progress_dlg.update(int((idx * 100) / total_files), status_line)
 
-                            if not clean_name.startswith("custom"):
-                                pretty_name = f"Custom {clean_name.strip().title()}"
-                            else:
-                                pretty_name = clean_name.strip().title()
+                            if custom.update(full_path, target_config_dir) is True:
+                                imported_count += 1
+                                raw_name = f_item.lower()
+                                clean_name = raw_name.replace(".config", "").replace(".conf", "")
+                                clean_name = clean_name.replace("_", " ").replace("-", " ")
 
-                            token_id = pretty_name.lower().replace(" ", "_")
-                            if len(token_id) > 15:
-                                token_id = token_id[:15]
+                                if not clean_name.startswith("custom"):
+                                    pretty_name = f"Custom {clean_name.strip().title()}"
+                                else:
+                                    pretty_name = clean_name.strip().title()
 
-                            last_pretty = pretty_name
-                            last_path = full_path
-                            last_token = token_id
+                                token_id = pretty_name.lower().replace(" ", "_")
+                                if len(token_id) > 15:
+                                    token_id = token_id[:15]
+
+                                last_pretty = pretty_name
+                                last_path = full_path
+                                last_token = token_id
+
+                            progress_dlg.update(int(((idx + 1) * 100) / total_files), status_line)
+
+                        progress_dlg.close()
 
                     if imported_count > 0:
                         if last_path and last_token:
@@ -229,7 +248,7 @@ def run(argv):
 
                         dialog.show_custom_import_result(imported_count, last_pretty)
                         dialog.notify_action_required("Selection cached. You MUST press 'OK' in settings!")
-                    else:
+                    elif not cancelled:
                         log_message("Main Launcher: No valid WireGuard layouts parsed from selection.", 2)
                         dialog.show_custom_import_failure()
 

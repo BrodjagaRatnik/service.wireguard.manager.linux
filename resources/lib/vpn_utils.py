@@ -6,7 +6,7 @@ import subprocess
 import time
 import datetime
 from logger import log_message
-from vpn_config import PROVIDER_MAP, META_SETTLE_DELAY, META_HTTP_ATTEMPTS
+from vpn_config import PROVIDER_MAP
 _FNAME_CACHE = {}
 
 
@@ -214,61 +214,42 @@ def fetch_vpn_metadata(interface_name):
     t_stamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
 
     if interface_name:
-        ping_verified = False
-        for ping_attempt in range(2):
-            try:
-                ping_res = subprocess.run(
-                    ["ping", "-c", "1", "-W", "2", "-I", interface_name, "1.1.1.1"],
-                    stdout=subprocess.DEVNULL,
-                    stderr=subprocess.DEVNULL
-                )
-                if ping_res.returncode == 0:
-                    ping_verified = True
-                    break
-            except Exception:
-                pass
-            if ping_attempt == 0:
-                time.sleep(2.0)
-
-        if ping_verified is False:
-            log_message(f"VPN_Utils: Data path verification failed via ICMP on {interface_name}", 2)
+        try:
+            ping_res = subprocess.run(
+                ["ping", "-c", "1", "-W", "1", "-I", interface_name, "1.1.1.1"],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL
+            )
+            if ping_res.returncode != 0:
+                log_message(f"VPN_Utils: Data path verification failed via ICMP on {interface_name}", 2)
+                return None, None
+        except Exception as e:
+            log_message(f"VPN_Utils: Ping check threw {e}", 2)
             return None, None
 
-    cmd_io = ["curl", "-s", "--connect-timeout", "3.0", "--max-time", "6.0"]
-    if interface_name:
-        cmd_io.extend(["--interface", interface_name])
-    cmd_io.append("https://ipinfo.io")
+    providers = [
+        ("ipinfo.io", "Ipinfo provider"),
+        ("ipapi.co", "Ipapi provider")
+    ]
 
-    for meta_attempt in range(META_HTTP_ATTEMPTS):
+    for idx, (provider_url, log_msg) in enumerate(providers):
+        cmd = ["curl", "-s", "--connect-timeout", "1", "--max-time", "2"]
+        if interface_name:
+            cmd.extend(["--interface", interface_name])
+        cmd.append(f"https://{provider_url}")
+
         try:
-            res = subprocess.check_output(cmd_io, text=True, encoding="utf-8", errors="replace")
+            res = subprocess.check_output(cmd, text=True, encoding="utf-8", errors="replace")
             if res and res.strip():
                 data = json.loads(res)
                 if "ip" in data:
-                    log_message(f"VPN_Utils: Ipinfo provider selected at {t_stamp}", 0)
+                    log_message(f"VPN_Utils: {log_msg} selected at {t_stamp}", 0)
                     return data.get("ip", "Unknown"), data.get("country", "??")
         except Exception:
-            pass
-        if meta_attempt < META_HTTP_ATTEMPTS - 1:
-            time.sleep(float(META_SETTLE_DELAY))
-
-    cmd_co = ["curl", "-s", "--connect-timeout", "3.0", "--max-time", "6.0"]
-    if interface_name:
-        cmd_co.extend(["--interface", interface_name])
-    cmd_co.append("https://ipapi.co")
-
-    for meta_attempt in range(META_HTTP_ATTEMPTS):
-        try:
-            res = subprocess.check_output(cmd_co, text=True, encoding="utf-8", errors="replace")
-            if res and res.strip():
-                data = json.loads(res)
-                if "ip" in data:
-                    log_message(f"VPN_Utils: Ipapi provider selected at {t_stamp}", 0)
-                    return data.get("ip", "Unknown"), data.get("country", "??")
-        except Exception:
-            pass
-        if meta_attempt < META_HTTP_ATTEMPTS - 1:
-            time.sleep(float(META_SETTLE_DELAY))
+            if idx < len(providers) - 1:
+                continue
+            else:
+                log_message("VPN_Utils: Both metadata providers failed", 2)
 
     return "Unknown", "??"
 

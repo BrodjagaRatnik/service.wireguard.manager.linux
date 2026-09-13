@@ -40,11 +40,29 @@ def generate_mullvad_configs(account_id, country_filter, mtu_setting=1380, multi
     )
 
     try:
+        import xbmcgui
+        progress = xbmcgui.DialogProgress()
+        progress.create("Mullvad Profile Update", "Preparing...")
+    except Exception:
+        progress = None
+
+    try:
+        if progress:
+            progress.update(10, "Initializing Mullvad engine...")
+
         mullvad = Mullvad(args)
-        mullvad.run()
+        mullvad.run(progress=progress)
+
+    except SystemExit:
+        raise
     except Exception as e:
         log_message(f"Mullvad configuration generation pipeline crashed: {e}", 3)
+        if progress:
+            progress.close()
         sys.exit(1)
+    finally:
+        if progress:
+            progress.close()
 
 
 def generate_publickey(privatekey: str) -> str:

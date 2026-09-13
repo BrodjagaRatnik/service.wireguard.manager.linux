@@ -45,7 +45,17 @@ def update(user, password, country_ids, config_dir):
 
     from state_manager import get_active_vpn
 
+    try:
+        import xbmcgui
+        progress = xbmcgui.DialogProgress()
+        progress.create("PIA Profile Update", "Cleaning old configs...")
+    except Exception:
+        progress = None
+
     if os.path.exists(config_dir) is True:
+        if progress:
+            progress.update(5, "Cleaning old configs...")
+
         for filename in os.listdir(config_dir):
             if filename.startswith("pia_") and filename.endswith(".conf"):
                 file_id = filename.replace("pia_", "").replace(".conf", "")
@@ -59,6 +69,9 @@ def update(user, password, country_ids, config_dir):
                         os.remove(os.path.join(config_dir, filename))
                     except Exception as r_err:
                         log_message(f"PIA Updater: Server array tracking error skipped {r_err}", 3)
+
+    if progress:
+        progress.update(10, "Fetching server list...")
 
     raw_data = None
     for attempt in range(3):
@@ -79,12 +92,18 @@ def update(user, password, country_ids, config_dir):
                     time.sleep(3.0)
                     continue
             log_message(f"PIA Updater: URL Error: {url_err}", 3)
+            if progress:
+                progress.close()
             return False
         except Exception as fetch_err:
             log_message(f"PIA Updater: Fetch Error: {fetch_err}", 3)
+            if progress:
+                progress.close()
             return False
 
     if raw_data is None:
+        if progress:
+            progress.close()
         return False
 
     try:
@@ -96,7 +115,20 @@ def update(user, password, country_ids, config_dir):
         config_latency = getattr(pia_config, "MAX_LATENCY", 0.05)
         latency_tiers = [config_latency, 0.15, 0.30, 0.60, 1.00]
 
-        for rid in selected_list:
+        total_regions = len(selected_list)
+        processed_regions = 0
+
+        for c_pos, rid in enumerate(selected_list, start=1):
+            if progress and progress.iscanceled():
+                log_message("PIA Updater: Update cancelled by user.", 2)
+                if progress:
+                    progress.close()
+                return False
+
+            if progress:
+                base_pct = int(((c_pos - 1) * 100) / total_regions) + 15
+                progress.update(min(base_pct, 95), "Region %d of %d: scanning nodes..." % (c_pos, total_regions))
+
             region_node = None
             for r in data.get('regions', []):
                 if r['id'].lower() == rid:
@@ -125,8 +157,18 @@ def update(user, password, country_ids, config_dir):
             log_message(f"PIA Speed Profiler: Evaluating nodes for region profile ID: {rid}", 0)
             verified_servers = []
 
-            for max_latency in latency_tiers:
+            tiers_total = len(latency_tiers)
+            for t_pos, max_latency in enumerate(latency_tiers):
                 log_message(f"PIA Speed Profiler: Scanning nodes under threshold tier: {max_latency * 1000:.0f}ms", 0)
+
+                if progress:
+                    tier_pct = int(((t_pos + 1) * 20) / tiers_total)
+                    progress.update(
+                        min(base_pct + tier_pct, 95),
+                        "Scanning latency tier %d/%d" % (t_pos + 1, tiers_total),
+                        "%.0fms ceiling" % (max_latency * 1000)
+                    )
+
                 for srv in valid_candidates:
                     srv_ip = str(srv.get('ip'))
                     start_t = time.time()
@@ -187,6 +229,9 @@ def update(user, password, country_ids, config_dir):
                 f.write(config_text)
             os.chmod(file_path, 0o600)
 
+            if progress:
+                progress.update(min(base_pct + 85, 95), "Registering profile...", base_name)
+
             try:
                 subprocess.run(
                     ["nmcli", "connection", "delete", "id", base_name],
@@ -215,6 +260,7 @@ def update(user, password, country_ids, config_dir):
 
             compiled_files_count += 1
             total_nodes_count += len(server_ips)
+            processed_regions += 1
 
         from state_manager import get_file_path
         map_path = get_file_path('pia_map')
@@ -241,10 +287,15 @@ def update(user, password, country_ids, config_dir):
             if boot_target:
                 write_state('reconnect', str(boot_target))
 
+        if progress:
+            progress.close()
+
         return True
 
     except Exception as e:
         log_message(f"PIA Updater: {e}", 3)
+        if progress:
+            progress.close()
         return False
 
 

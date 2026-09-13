@@ -1,5 +1,4 @@
 """ .resources/lib/providers/nordvpn.py
-
     user_data = fetch_nord_url("https://api.nordvpn.com/v1/users/services/credentials", token=token)
 
         url = (
@@ -35,6 +34,13 @@ def update(token, country_ids, config_dir):
     if lib_path not in sys.path:
         sys.path.insert(0, lib_path)
 
+    try:
+        import xbmcgui
+        progress = xbmcgui.DialogProgress()
+        progress.create("NordVPN Profile Update", "Retrieving credentials...")
+    except Exception:
+        progress = None
+
     log_message("NordVPN: Starting update process.", 0)
 
     active_vpn_name = get_active_vpn()
@@ -46,15 +52,28 @@ def update(token, country_ids, config_dir):
 
     if not user_data or "nordlynx_private_key" not in user_data:
         log_message(f"NordVPN: Private Key fetch failed. Response {user_data}", 3)
+        if progress:
+            progress.close()
         return False
 
     priv_key = user_data["nordlynx_private_key"]
     log_message("NordVPN: Private key successfully retrieved.", 0)
 
     ids = [i.strip() for i in country_ids.split(",")]
+    total_ids = len(ids)
     success_count = 0
+    cancelled = False
 
-    for c_id in ids:
+    for c_pos, c_id in enumerate(ids, start=1):
+        if progress and progress.iscanceled():
+            log_message("NordVPN: Update cancelled by user.", 2)
+            cancelled = True
+            break
+
+        if progress:
+            progress.update(int(((c_pos - 1) * 100) / total_ids),
+                            "Country %d of %d: fetching recommendations" % (c_pos, total_ids))
+
         log_message(f"NordVPN: Fetching recommendations for Country ID {c_id}", 0)
         url = (
             "https://api.nordvpn.com/v1/servers/recommendations"
@@ -77,6 +96,11 @@ def update(token, country_ids, config_dir):
             try:
                 hostname = data.get("hostname", "")
                 log_message(f"NordVPN: Processing candidate {idx} ({hostname})", 0)
+
+                if progress:
+                    overall = int((((c_pos - 1) * 5 + idx) * 100) / (total_ids * 5))
+                    progress.update(overall, "Country %d/%d - server %d/%d: %s" %
+                                    (c_pos, total_ids, idx, len(servers), hostname))
 
                 try:
                     ip = socket.gethostbyname(hostname)
@@ -149,6 +173,9 @@ def update(token, country_ids, config_dir):
         if config_written_for_country == 0:
             log_message(f"NordVPN: All {len(servers)} candidate servers failed for Country ID {c_id}", 3)
 
+    if progress:
+        progress.close()
+
     if success_count > 0:
         log_message(f"NordVPN: Finalizing {success_count} configs.", 0)
         finalize_configs(config_dir)
@@ -165,6 +192,9 @@ def update(token, country_ids, config_dir):
             log_message("NordVPN: Active interface detected. Scheduling deferred reconnect.", 1)
             write_state('reconnect', str(active_vpn_name))
         return True
+
+    if cancelled:
+        return False
 
     log_message(f"NordVPN: Update failed for IDs {country_ids}", 3)
     return False

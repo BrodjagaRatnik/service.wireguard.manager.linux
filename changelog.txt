@@ -1,6 +1,15 @@
 CHANGELOG
 =========
 
+v1.0.2 (2026-09-13)
+
+- Added progress dialog with percentage display during custom profile bulk import
+- Custom import can now be cancelled mid-run (Cancel button stops further imports cleanly)
+- Prevent duplicate FriendlyName headers when source config already contains one
+- Drastically faster post-connect metadata verification (single ping probe, tighter curl timeouts, no retry delays)
+- DNS leak test now shows a progress dialog and refuses to run while the firewall killswitch is active
+- Fixed custom profiles not claiming the default route (ip4-auto-default-route now enabled, matching Mullvad behavior)
+
 v1.0.1 (2026-09-12)
 
 - Initial dedicated release for Linux Desktop and Debian/LMDE architectures. This is the first release of the addon built specifically for Linux Desktop environments, branching away from the embedded LibreELEC target.
@@ -8,4 +17,3 @@ v1.0.1 (2026-09-12)
 - Converted provider blueprint routines to output generic WireGuard .conf profile schemas. Provider templates (NordVPN, PIA, Custom) now emit standard WireGuard configuration files that can be imported by any compatible tool.
 - Shifted systemd watchdog services to unprivileged user-space systemd execution loops. The watchdog now runs as a plain user unit without root requirements, making it safer on multi-user desktop systems.
 - Replaced hardcoded physical network device references with global dynamic interface sniffing utilities. Network devices are now discovered at runtime instead of being pinned to fixed interface names like enp3s0 or wlp2s0.
-

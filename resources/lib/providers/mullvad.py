@@ -224,7 +224,7 @@ class MullvadConfig:
         self.wg_relay_port = wg_relay_port
         self.mtu = mtu
 
-    def create_wg_configs(self, relays, device, privatekey, dns_str, multihop_server) -> None:
+    def create_wg_configs(self, relays, device, privatekey, dns_str, multihop_server, progress=None) -> None:
         try:
             output_dir = pathlib.Path(self.output_dir).expanduser()
             output_dir.mkdir(exist_ok=True, parents=True)
@@ -251,10 +251,19 @@ class MullvadConfig:
         elif isinstance(relays, list):
             target_relays = relays
 
+        total_relays = len(target_relays)
         used_names = {}
 
-        for relay in target_relays:
+        for idx, relay in enumerate(target_relays, start=1):
+            if progress and progress.iscanceled():
+                log_message("Mullvad Config: Generation cancelled by user.", 2)
+                break
+
             hostname = relay.get("hostname", "")
+
+            if progress:
+                pct = 50 + int(((idx - 1) * 50) / total_relays)
+                progress.update(pct, "Profile %d of %d: %s" % (idx, total_relays, hostname))
 
             try:
                 self.create_linux_config(
@@ -416,7 +425,7 @@ class Mullvad:
         self._config = configparser.ConfigParser()
         self._settings_file = pathlib.Path(self._settings_file).expanduser()
 
-    def run(self):
+    def run(self, progress=None):
         try:
             loc_filter = self._wg_relays_filter.get("location_prefix", "")
             if not loc_filter or not str(loc_filter).strip():
@@ -431,9 +440,20 @@ class Mullvad:
                     xbmcgui.Dialog().ok(title, msg)
                 return False
 
+            if progress:
+                progress.update(20, "Resolving multihop entry...")
             multihop_server = self.get_multihop_server()
+
+            if progress:
+                progress.update(30, "Fetching relay list...")
             relays = self.get_relays()
+
+            if progress:
+                progress.update(40, "Loading WireGuard key pair...")
             private_key, public_key = self.get_key_pair()
+
+            if progress:
+                progress.update(45, "Registering device with Mullvad...")
             device = self.get_device(public_key) or self.create_device(public_key)
 
             if self.mullvad_config.wg_dns:
@@ -442,7 +462,9 @@ class Mullvad:
                 dns_str = "100.64.0.63, 100.64.0.6"
 
             if device:
-                self.mullvad_config.create_wg_configs(relays, device, private_key, dns_str, multihop_server)
+                if progress:
+                    progress.update(50, "Compiling profiles...")
+                self.mullvad_config.create_wg_configs(relays, device, private_key, dns_str, multihop_server, progress=progress)
         except Exception as e:
             log_message(f"Execution runtime failed within the main processing execution block: {e}", 3)
             sys.exit(1)

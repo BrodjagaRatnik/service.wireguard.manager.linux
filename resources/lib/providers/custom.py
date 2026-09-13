@@ -27,13 +27,13 @@ def update(source_path, target_config_dir):
         pretty_name = f"Custom {clean_words.strip().title()}"
 
         b_name = raw_base if raw_base.startswith("custom_") else f"custom_{raw_base}"
-        b_name = b_name.replace(" ", "_")
-        if len(b_name) > 15:
-            b_name = b_name[:15]
+        b_name = b_name.replace(" ", "_")[:15]
 
         dest_filename = f"{b_name}.conf"
         file_path = os.path.join(target_config_dir, dest_filename)
-        output_content = f"# FriendlyName = {pretty_name}\n{raw_content}"
+
+        header = "" if raw_content.lstrip().startswith("#") else f"# FriendlyName = {pretty_name}\n"
+        output_content = f"{header}{raw_content}"
 
         with open(file_path, "w", encoding="utf-8") as target_file:
             target_file.write(output_content)
@@ -63,7 +63,8 @@ def update(source_path, target_config_dir):
              "ipv4.dns-priority", "100",
              "ipv6.dns-priority", "100",
              "connection.autoconnect", "no",
-             "wireguard.ip4-auto-default-route", "false"],
+             "wireguard.ip4-auto-default-route", "true",
+             "wireguard.peer-routes", "true"],
             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False
         )
 
