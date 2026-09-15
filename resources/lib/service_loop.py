@@ -176,11 +176,6 @@ def execute_monitor_loop(instance):
             log_message(log_msg, 1)
 
             xbmcgui.Window(10000).setProperty('vpn_manual_session', 'false')
-            if manual_path is not None and os.path.exists(manual_path) is True:
-                try:
-                    os.remove(manual_path)
-                except Exception:
-                    pass
 
             set_active_vpn(None)
             instance.vpn_ops.disconnect_vpn(silent=False, flush_dns=True)

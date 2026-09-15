@@ -1,7 +1,9 @@
 """ ./resources/lib/tunnel_checker.py """
 import kodi_env
+import socket
 import subprocess
 import time
+import traceback
 
 try:
     import xbmcgui
@@ -26,20 +28,120 @@ from vpn_utils import (
 from state_manager import get_active_vpn, write_state
 from vpn_config import SANITY_POLL_INTERVAL, SANITY_SETTLE_DELAY
 from resources.scripts.killswitch import ZeroHardcodeKillSwitch
-from dialog import notify_tunnel_restored, notify_orphaned_tunnel
+from dialog import (
+    notify_tunnel_restored,
+    notify_orphaned_tunnel,
+    ask_reconnect_retry,
+    notify_breaker_open,
+    failure_dialog_allowed,
+    mark_failure_dialog_shown,
+    clear_failure_dialogs
+)
 
 
 def _breaker_open_for(target_name):
     try:
         from vpn_connector import _load_cycle_state, CYCLE_FAIL_LIMIT
+        log_message(f"[BREAKER] Loading cycle state, limit={CYCLE_FAIL_LIMIT}", 1)
         state = _load_cycle_state()
+        log_message(
+            "[BREAKER] State snapshot - count={}, name={}, target={}".format(
+                state.get("count"), state.get("name"), target_name
+            ),
+            1
+        )
         if state["count"] < CYCLE_FAIL_LIMIT:
+            log_message(
+                "[BREAKER] Count {} below limit {}, breaker CLOSED".format(
+                    state["count"], CYCLE_FAIL_LIMIT
+                ),
+                0
+            )
             return False
         if state["name"] and target_name and state["name"] != str(target_name):
+            log_message(
+                "[BREAKER] Mismatch - state name '{}' != target '{}', breaker CLOSED".format(
+                    state["name"], target_name
+                ),
+                1
+            )
             return False
+        log_message(f"[BREAKER] ALL CONDITIONS MET - breaker OPEN for [{target_name}]", 2)
         return True
-    except Exception:
+    except Exception as e:
+        log_message(
+            "Tunnel Check: Breaker state evaluation exception: {}\n{}".format(
+                e, traceback.format_exc()
+            ),
+            3
+        )
         return False
+
+
+def _find_tunnel_iface():
+    prefixes = get_dynamic_prefixes()
+    log_message(f"[IFACE-SEARCH] Using prefixes: {prefixes}", 1)
+
+    log_message("[IFACE-SEARCH] Attempting NM device discovery...", 0)
+    nm_name, nm_device = get_nm_tunnel_device()
+    log_message(f"[IFACE-SEARCH] NM result - name={nm_name}, device={nm_device}", 1)
+    if nm_device:
+        log_message(f"[IFACE-SEARCH] SUCCESS via NM: {nm_device}", 0)
+        return str(nm_device)
+
+    log_message("[IFACE-SEARCH] Attempting wg show discovery...", 0)
+    try:
+        res = subprocess.run(
+            ["wg", "show", "interfaces"],
+            text=True, capture_output=True, check=False, timeout=3.0
+        )
+        log_message(
+            "[IFACE-SEARCH] wg show output: '{}' (rc={})".format(
+                res.stdout.strip(), res.returncode
+            ),
+            1
+        )
+        if res.returncode == 0:
+            for iface in res.stdout.split():
+                if any(p in iface.lower() for p in prefixes):
+                    log_message(f"[IFACE-SEARCH] MATCH via wg: {iface}", 0)
+                    return str(iface)
+    except subprocess.TimeoutExpired:
+        log_message("[IFACE-SEARCH] wg show timed out", 2)
+    except Exception as wg_err:
+        log_message(
+            "Tunnel Check: wg show discovery exception: {}\n{}".format(
+                wg_err, traceback.format_exc()
+            ),
+            3
+        )
+
+    log_message("[IFACE-SEARCH] Attempting ip link discovery...", 0)
+    try:
+        out = subprocess.check_output(
+            ["ip", "-o", "link", "show", "up"],
+            text=True, stderr=subprocess.DEVNULL
+        )
+        for line in out.splitlines():
+            parts = line.split(":")
+            if len(parts) > 1:
+                name = parts[1].strip().split("@")[0]
+                if any(p in name.lower() for p in prefixes):
+                    log_message(f"[IFACE-SEARCH] MATCH via ip link: {name}", 0)
+                    return str(name)
+        log_message("[IFACE-SEARCH] ip link found no prefix matches", 1)
+    except subprocess.TimeoutExpired:
+        log_message("[IFACE-SEARCH] ip link discovery timed out", 2)
+    except Exception as ip_err:
+        log_message(
+            "Tunnel Check: ip link discovery exception: {}\n{}".format(
+                ip_err, traceback.format_exc()
+            ),
+            3
+        )
+
+    log_message("[IFACE-SEARCH] All discovery methods exhausted, returning None", 2)
+    return None
 
 
 def run_tunnel_sanity_check(run_update_if_clear=False):
@@ -60,36 +162,7 @@ def run_tunnel_sanity_check(run_update_if_clear=False):
 
         prefixes = get_dynamic_prefixes()
         current_default_iface = get_active_interface()
-
-        def _find_tunnel_iface():
-            nm_name, nm_device = get_nm_tunnel_device()
-            if nm_device:
-                return str(nm_device)
-            try:
-                res = subprocess.run(
-                    ["wg", "show", "interfaces"],
-                    text=True, capture_output=True, check=False, timeout=3.0
-                )
-                if res.returncode == 0:
-                    for iface in res.stdout.split():
-                        if any(p in iface.lower() for p in prefixes):
-                            return str(iface)
-            except Exception:
-                pass
-            try:
-                out = subprocess.check_output(
-                    ["ip", "-o", "link", "show", "up"],
-                    text=True, stderr=subprocess.DEVNULL
-                )
-                for line in out.splitlines():
-                    parts = line.split(":")
-                    if len(parts) > 1:
-                        name = parts[1].strip().split("@")[0]
-                        if any(p in name.lower() for p in prefixes):
-                            return str(name)
-            except Exception:
-                pass
-            return None
+        log_message(f"[IFACE-STATE] Default interface reported: {current_default_iface}", 1)
 
         if not current_default_iface:
             tunnel_iface = _find_tunnel_iface()
@@ -102,7 +175,10 @@ def run_tunnel_sanity_check(run_update_if_clear=False):
             if not is_tunnel_iface:
                 tunnel_iface = _find_tunnel_iface()
                 if not tunnel_iface:
-                    log_message("Tunnel Check: No tunnel interface present. Nothing to verify.", 0)
+                    log_message(
+                        "Tunnel Check: No tunnel interface present. Nothing to verify.",
+                        0
+                    )
                     return
                 current_default_iface = tunnel_iface
 
@@ -110,23 +186,41 @@ def run_tunnel_sanity_check(run_update_if_clear=False):
             log_message("Tunnel Check: Tunnel interface exists but is inactive.", 0)
             return
 
+        log_message(f"[PING] Testing connectivity to 1.1.1.1 via {current_default_iface}...", 0)
         tunnel_is_broken = False
         try:
+            start_time = time.time()
             res = subprocess.run(
                 ["ping", "-c", "1", "-W", "2", "1.1.1.1"],
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
                 check=False,
                 timeout=3.0
             )
+            elapsed = time.time() - start_time
+            ping_out = res.stdout.decode("utf-8", errors="ignore").strip()[:200]
+            ping_err = res.stderr.decode("utf-8", errors="ignore").strip()[:200]
+            log_message(
+                "[PING] Result: rc={}, time={:.2f}s, out='{}', err='{}'".format(
+                    res.returncode, elapsed, ping_out, ping_err
+                ),
+                1
+            )
             if res.returncode != 0:
-                log_message("Tunnel Check: Interface up but end-to-end routing ping failed.", 0)
+                log_message(f"[PING] FAIL - non-zero exit code {res.returncode}", 2)
                 tunnel_is_broken = True
+            else:
+                log_message(f"[PING] SUCCESS - received response in {elapsed:.2f}s", 0)
         except subprocess.TimeoutExpired:
-            log_message("Tunnel Check: Process execution timed out.", 0)
+            log_message("[PING] TIMEOUT - process execution exceeded 3s", 2)
             tunnel_is_broken = True
         except Exception as ping_err:
-            log_message(f"Tunnel Check: Connection verification exception: {ping_err}", 3)
+            log_message(
+                "Tunnel Check: Connection verification exception: {}\n{}".format(
+                    ping_err, traceback.format_exc()
+                ),
+                3
+            )
             tunnel_is_broken = True
 
         if not tunnel_is_broken:
@@ -142,11 +236,13 @@ def run_tunnel_sanity_check(run_update_if_clear=False):
             return
 
         boot_target = get_active_vpn()
+        log_message(f"[RECOVERY] Boot target from session state: {boot_target}", 1)
 
         if not boot_target:
             log_message(
                 "Tunnel Check: Dead link detected but no session state to recover. "
-                "Leaving interface untouched.", 2
+                "Leaving interface untouched.",
+                2
             )
             notify_orphaned_tunnel(current_default_iface)
             return
@@ -156,6 +252,9 @@ def run_tunnel_sanity_check(run_update_if_clear=False):
                 "Tunnel Check: Cycle-fail breaker open for [%s]. Taking dead tunnel "
                 "down and clearing session state - no reconnect attempt." % boot_target, 2
             )
+            if failure_dialog_allowed("breaker_open"):
+                notify_breaker_open(boot_target)
+                mark_failure_dialog_shown("breaker_open")
             recovery_ks_handled = False
             try:
                 recovery_ks = ZeroHardcodeKillSwitch(vpn_server_ip="0.0.0.0")
@@ -163,7 +262,10 @@ def run_tunnel_sanity_check(run_update_if_clear=False):
                 recovery_ks.disable(reason="breaker-teardown")
                 recovery_ks_handled = True
             except Exception as fw_purge_err:
-                log_message(f"Tunnel Check: Breaker teardown firewall purge exception: {fw_purge_err}", 3)
+                log_message(
+                    f"Tunnel Check: Breaker teardown firewall purge exception: {fw_purge_err}",
+                    3
+                )
 
             import vpn_ops
             vpn_ops.disconnect_vpn(
@@ -211,22 +313,51 @@ def run_tunnel_sanity_check(run_update_if_clear=False):
             timeout -= poll_interval
         else:
             log_message(
-                "Tunnel Check: Recovery wait expired - stale route or interface persists.", 2
+                "Tunnel Check: Recovery wait expired - stale route or interface persists.",
+                2
             )
 
         time.sleep(SANITY_SETTLE_DELAY / 1000.0)
 
         dns_timeout = 4.0
         dns_ready = False
+        dns_attempts = 0
+        log_message(f"[DNS] Verifying WAN DNS recovery, timeout={dns_timeout}s...", 0)
         while dns_timeout > 0:
+            dns_attempts += 1
             try:
-                import socket
-                socket.gethostbyname("one.one.one.one")
+                start_dns = time.time()
+                result = socket.gethostbyname("one.one.one.one")
+                elapsed_dns = time.time() - start_dns
+                log_message(
+                    "[DNS] RESOLVED to {} in {:.2f}s (attempt {})".format(
+                        result, elapsed_dns, dns_attempts
+                    ),
+                    0
+                )
                 dns_ready = True
                 break
-            except socket.error:
+            except socket.gaierror as gai_err:
+                log_message(f"[DNS] Gai error on attempt {dns_attempts}: {gai_err}", 1)
                 time.sleep(0.2)
                 dns_timeout -= 0.2
+            except Exception as dns_err:
+                log_message(
+                    "Tunnel Check: DNS recovery exception: {}\n{}".format(
+                        dns_err, traceback.format_exc()
+                    ),
+                    3
+                )
+                time.sleep(0.2)
+                dns_timeout -= 0.2
+
+        if not dns_ready:
+            log_message(
+                "[DNS] FAILED - all resolution attempts exhausted ({} attempts)".format(
+                    dns_attempts
+                ),
+                2
+            )
 
         if dns_ready:
             try:
@@ -249,32 +380,82 @@ def run_tunnel_sanity_check(run_update_if_clear=False):
         if HAS_GUI:
             xbmcgui.Window(10000).setProperty('vpn_manual_session', 'true')
 
+        def _report_reconnect(profile_label):
+            meta_iface = get_active_interface() or current_default_iface
+            log_message(f"[RECONNECT] Active interface post-connect: {meta_iface}", 1)
+            ip, country = fetch_vpn_metadata(meta_iface)
+            log_message(f"[RECONNECT] Metadata result - IP={ip}, Country={country}", 1)
+            if ip and ip != "Unknown":
+                log_message(
+                    f"Tunnel Check: Profile link [{profile_label}] verified and "
+                    f"re-established ({ip}).",
+                    1
+                )
+                if HAS_GUI:
+                    xbmcgui.Window(10000).setProperty('vpn_reconnected', profile_label)
+                notify_tunnel_restored(profile_label, ip, country)
+                clear_failure_dialogs()
+            else:
+                log_message(
+                    f"Tunnel Check: Reconnect to [{profile_label}] completed but "
+                    f"data path unverified. Deferring verdict to next health cycle.",
+                    2
+                )
+
+        log_message(
+            "[RECONNECT] Invoking connect_vpn for target={} sid={}".format(boot_target, sid),
+            0
+        )
         connect_ok = vpn_ops.connect_vpn(str(boot_target), str(sid), silent=True)
 
         if connect_ok is True:
-            meta_iface = get_active_interface() or current_default_iface
-            ip, country = fetch_vpn_metadata(meta_iface)
-            if ip and ip != "Unknown":
-                log_message(
-                    f"Tunnel Check: Profile link [{boot_target}] verified and "
-                    f"re-established ({ip}).", 1
-                )
-                if HAS_GUI:
-                    xbmcgui.Window(10000).setProperty('vpn_reconnected', boot_target)
-                notify_tunnel_restored(boot_target, ip, country)
-            else:
-                log_message(
-                    f"Tunnel Check: Reconnect to [{boot_target}] completed but "
-                    f"data path unverified. Deferring verdict to next health cycle.", 2
-                )
+            log_message("[RECONNECT] Connect returned OK, verifying metadata...", 0)
+            _report_reconnect(boot_target)
         else:
             log_message(
-                f"Tunnel Check: Reconnect to [{boot_target}] was not completed. "
-                f"Further retries governed by the cycle-fail breaker.", 2
+                "[RECONNECT] FAILED - connect_vpn returned {}. State preserved for "
+                "cycle-fail breaker evaluation.".format(connect_ok),
+                2
             )
+            retry_requested = False
+            if failure_dialog_allowed("reconnect_failed"):
+                retry_requested = ask_reconnect_retry(boot_target) is True
+                mark_failure_dialog_shown("reconnect_failed")
+            if retry_requested is True:
+                log_message(
+                    f"Tunnel Check: User requested immediate reconnect retry for "
+                    f"[{boot_target}].",
+                    1
+                )
+                retry_ok = vpn_ops.connect_vpn(str(boot_target), str(sid), silent=True)
+                if retry_ok is True:
+                    log_message("[RECONNECT] User-requested retry returned OK, verifying...", 0)
+                    _report_reconnect(boot_target)
+                else:
+                    log_message(
+                        "[RECONNECT] User-requested retry failed. Further retries governed "
+                        "by the cycle-fail breaker.",
+                        2
+                    )
+                    log_message(
+                        f"Tunnel Check: Reconnect to [{boot_target}] was not completed. "
+                        f"Further retries governed by the cycle-fail breaker.",
+                        2
+                    )
+            else:
+                log_message(
+                    f"Tunnel Check: Reconnect to [{boot_target}] was not completed. "
+                    f"Further retries governed by the cycle-fail breaker.",
+                    2
+                )
 
     except Exception as e:
-        log_message(f"Tunnel Check: Monitoring framework tracking exception: {e}", 3)
+        log_message(
+            "Tunnel Check: Monitoring framework tracking exception: {}\n{}".format(
+                e, traceback.format_exc()
+            ),
+            3
+        )
 
     finally:
         kodi_env.clear_script_globals()

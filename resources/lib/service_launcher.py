@@ -5,9 +5,10 @@ import os
 import time
 import threading
 import dialog
+import subprocess
+import vpn_ops
 from logger import log_message
 from vpn_config import PI2, PI3, PI4, PI5, WATCHDOG_HEARTBEAT
-import vpn_ops
 from service_updater import handle_settings_update
 from service_resolver import resolve_service_id
 from service_loop import execute_monitor_loop
@@ -21,7 +22,7 @@ from vpn_utils import get_active_interface, get_dynamic_prefixes
 
 try:
     import xbmc
-    import subprocess
+    import xbmcgui
     HAS_KODI_MONITOR = True
 except ImportError:
     HAS_KODI_MONITOR = False
@@ -44,6 +45,16 @@ def _match_config_name(token):
         if stem == token or token in stem or stem in token:
             return stem
     return None
+
+
+def _restore_manual_property_from_disk():
+    try:
+        if read_state('manual') == 'true':
+            if HAS_KODI_MONITOR:
+                xbmcgui.Window(10000).setProperty('vpn_manual_session', 'true')
+            log_message("Service Launcher: Manual session property restored from disk state.", 0)
+    except Exception as restore_err:
+        log_message(f"Service Launcher: Manual property restore error: {restore_err}", 2)
 
 
 if HAS_KODI_MONITOR:
@@ -198,6 +209,7 @@ def _process_leftover_tunnel(addon_obj, boot_target):
             write_state('idle', 'false')
         except Exception:
             pass
+        _restore_manual_property_from_disk()
         log_message(
             f"Service Launcher: disconnect_on_start disabled. Previous tunnel "
             f"[{session}] kept active at startup.", 1
@@ -263,7 +275,18 @@ def _maybe_auto_connect(addon_obj, action):
             f"Service Launcher: auto_connect reconnecting last used "
             f"profile [{sid}]", 1
         )
-        vpn_ops.connect_vpn(vpn_name, sid, silent=False)
+        connected = vpn_ops.connect_vpn(vpn_name, sid, silent=False)
+        if connected is True:
+            write_state('manual', 'true')
+            try:
+                if HAS_KODI_MONITOR:
+                    xbmcgui.Window(10000).setProperty('vpn_manual_session', 'true')
+            except Exception:
+                pass
+            log_message(
+                f"Service Launcher: auto_connect session [{sid}] registered "
+                f"as manual to protect it from mapped-session timeouts.", 1
+            )
     except Exception as ac_err:
         log_message(f"Service Launcher: auto_connect failed: {ac_err}", 2)
 

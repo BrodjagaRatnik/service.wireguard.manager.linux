@@ -1,6 +1,24 @@
 CHANGELOG
 =========
 
+v1.0.3 (2026-09-15)
+
+- Fixed: manual VPN sessions now survive Kodi restarts, crashes and automatic tunnel recovery.
+  A session started manually stays manual until the user or the cycle-fail breaker ends it.
+- Fixed: auto_connect on startup re-registers the session as manual, so it is no longer
+  disconnected by the home timeout after ~13 seconds.
+- Fixed: silent recovery and internal reconnect attempts no longer wipe the manual session state.
+- Added: reconnect-failure dialog with a "Retry now" option (shown once per outage episode).
+- Added: notification when repeated failures trip the cycle-fail breaker and auto-recovery stops.
+- Added: failure dialogs are reset on manual connections and verified recovery.
+- Fixed: metadata verification no longer produces false negatives on fresh tunnels - DNS
+  readiness is awaited before probing metadata providers, killing the 2-second cold-start penalty.
+- Added: per-provider diagnostics for metadata probe failures (return code and curl error detail).
+- Improved: tunnel health checks log interface discovery, ping results and breaker state
+  for faster field diagnosis.
+- Fixed: tunnel report lines no longer claim a reconnect was not completed after a successful retry.
+- Fixed: home timeout no longer removes the persistent manual session file.
+
 v1.0.2 (2026-09-13)
 
 - Added progress dialog with percentage display during custom profile bulk import

@@ -227,6 +227,26 @@ def fetch_vpn_metadata(interface_name):
             log_message(f"VPN_Utils: Ping check threw {e}", 2)
             return None, None
 
+    import socket
+    dns_budget = 1.5
+    dns_deadline = time.time() + dns_budget
+    dns_ready = False
+    while True:
+        try:
+            socket.gethostbyname("ipinfo.io")
+            dns_ready = True
+            break
+        except Exception:
+            if time.time() >= dns_deadline:
+                break
+            time.sleep(0.2)
+    if not dns_ready:
+        log_message(
+            "VPN_Utils: Tunnel DNS not settled before metadata lookup - "
+            "provider probes may fail cold",
+            2
+        )
+
     providers = [
         ("ipinfo.io", "Ipinfo provider"),
         ("ipapi.co", "Ipapi provider")
@@ -239,13 +259,33 @@ def fetch_vpn_metadata(interface_name):
         cmd.append(f"https://{provider_url}")
 
         try:
-            res = subprocess.check_output(cmd, text=True, encoding="utf-8", errors="replace")
-            if res and res.strip():
-                data = json.loads(res)
+            res = subprocess.run(
+                cmd,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                capture_output=True,
+                check=False
+            )
+            body = (res.stdout or "").strip()
+            if res.returncode == 0 and body:
+                data = json.loads(body)
                 if "ip" in data:
-                    log_message(f"VPN_Utils: {log_msg} selected at {t_stamp}", 0)
+                    log_message(f"VPN_Utils: {log_msg} selected at {t_stamp}", 1)
                     return data.get("ip", "Unknown"), data.get("country", "??")
-        except Exception:
+            err_detail = (res.stderr or "").strip().replace("\n", " ")[:120]
+            if err_detail:
+                log_message(
+                    f"VPN_Utils: {log_msg} probe failed (rc={res.returncode}): {err_detail}",
+                    2
+                )
+            else:
+                log_message(
+                    f"VPN_Utils: {log_msg} probe failed (rc={res.returncode}, empty response)",
+                    2
+                )
+        except Exception as probe_err:
+            log_message(f"VPN_Utils: {log_msg} probe exception: {probe_err}", 2)
             if idx < len(providers) - 1:
                 continue
             else:

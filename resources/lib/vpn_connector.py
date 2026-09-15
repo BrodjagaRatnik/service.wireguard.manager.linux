@@ -172,6 +172,7 @@ def connect_vpn(vpn_name, sid, instance, silent=False, tried_profiles=None):
                 return False
         elif silent is False:
             _reset_cycle_state()
+            dialog.clear_failure_dialogs()
 
         addon_obj = kodi_env.get_addon_instance()
         provider_id = addon_obj.getSettingInt("vpn_provider") if (HAS_KODI and addon_obj) else 0

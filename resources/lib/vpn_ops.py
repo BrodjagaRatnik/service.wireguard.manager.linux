@@ -46,7 +46,8 @@ def disconnect_vpn(silent=False, flush_dns=True, reason="disengaged", skip_kills
         paths_to_clean = []
         manual_path = get_file_path("manual")
         if manual_path is not None:
-            paths_to_clean.append(manual_path)
+            if silent is False or reason == "breaker-teardown":
+                paths_to_clean.append(manual_path)
 
         for path in paths_to_clean:
             if os.path.exists(path) is True:

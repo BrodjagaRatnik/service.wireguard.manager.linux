@@ -271,3 +271,69 @@ def notify_startup_disconnected(friendly_name):
         "[B]Tunnel closed for clean startup. Connect when ready.[/B]"
     )
     _notify_safe(title, msg, _icon_path("icon.png"), 5000)
+
+
+_FAILURE_DIALOG_FLAGS = {
+    "reconnect_failed": "vpn_reconnect_fail_notified",
+    "breaker_open": "vpn_breaker_open_notified"
+}
+
+
+def failure_dialog_allowed(dialog_kind):
+    prop = _FAILURE_DIALOG_FLAGS.get(dialog_kind, "")
+    if not HAS_KODI or not prop:
+        return False
+    try:
+        return xbmcgui.Window(10000).getProperty(prop) != "true"
+    except Exception:
+        return False
+
+
+def mark_failure_dialog_shown(dialog_kind):
+    prop = _FAILURE_DIALOG_FLAGS.get(dialog_kind, "")
+    if not HAS_KODI or not prop:
+        return
+    try:
+        xbmcgui.Window(10000).setProperty(prop, "true")
+    except Exception:
+        pass
+
+
+def clear_failure_dialogs():
+    if not HAS_KODI:
+        return
+    for prop in _FAILURE_DIALOG_FLAGS.values():
+        try:
+            xbmcgui.Window(10000).setProperty(prop, "")
+        except Exception:
+            pass
+
+
+def ask_reconnect_retry(vpn_name):
+    if not HAS_KODI:
+        return False
+    title = "[B][COLOR FFFF0000][ RECONNECT FAILED ][/COLOR][/B]"
+    msg = (
+        f"[B][COLOR FF32CD32]{vpn_name}[/COLOR][/B]\n"
+        "[B][COLOR FFFFFF00]Auto-reconnect could not pass traffic.[/COLOR][/B]\n"
+        "[B]Retry connection now?[/B]"
+    )
+    try:
+        choice = xbmcgui.Dialog().yesno(title, msg)
+    except Exception as dialog_err:
+        from logger import log_message
+        log_message(f"Dialog: Reconnect retry dialog dispatch failed: {dialog_err}", 2)
+        return False
+    return choice is True
+
+
+def notify_breaker_open(vpn_name):
+    if not HAS_KODI:
+        return
+    title = "[B][COLOR FFFF0000][ AUTO-RECOVERY STOPPED ][/COLOR][/B]"
+    msg = (
+        f"[B][COLOR FF32CD32]{vpn_name}[/COLOR][/B]\n"
+        "[B]Repeated failures tripped the cycle breaker.\n"
+        "Connect manually when your network is ready.[/B]"
+    )
+    _notify_safe(title, msg, _icon_path("error.png"), 6000)
