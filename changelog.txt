@@ -1,6 +1,16 @@
 CHANGELOG
 =========
 
+v1.0.4 (2026-09-17)
+
+- Added: Cooldown functionality for rapid reconnection attempts (vpn_core.py)
+- Added: Silent gate mechanism to reduce log noise during normal operations (vpn_core_upd.py)  
+- Changed: Softened ICMP probe handling with fallback for unavailable endpoints (vpn_utils.py)
+- Fixed: Session state preservation across crash/restart scenarios
+- Fixed: End-to-end recovery flow verification (dead link → reconnect in under 1s)
+- Improved: Watchdog coordination with SHIELD disconnect flags
+- Improved: Manual session state persistence during emergency recovery
+
 v1.0.3 (2026-09-15)
 
 - Fixed: manual VPN sessions now survive Kodi restarts, crashes and automatic tunnel recovery.

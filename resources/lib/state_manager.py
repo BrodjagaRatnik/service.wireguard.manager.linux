@@ -1,13 +1,8 @@
 """ ./resources/lib/state_manager.py """
 import os
 
-CONFIG_DIR = os.path.expanduser('~/.config/wireguard')
-
-try:
-    import xbmcvfs
-    PROFILE_DIR = xbmcvfs.translatePath('special://profile/addon_data/service.wireguard.manager.linux')
-except ImportError:
-    PROFILE_DIR = os.path.expanduser('~/.kodi/userdata/addon_data/service.wireguard.manager.linux')
+CONFIG_DIR = os.path.expanduser("~/.config/wireguard")
+PROFILE_DIR = os.path.expanduser("~/.kodi/userdata/addon_data/service.wireguard.manager.linux")
 
 FILE_MAP = {
     'active': 'vpn_manager_active.txt',
@@ -50,7 +45,7 @@ def clear_startup_states():
     startup_keys = ['active', 'reconnect', 'dns_backup']
     for key in startup_keys:
         path = get_file_path(key)
-        if path is not None and (os.path.exists(path) is True):
+        if path is not None and os.path.exists(path):
             try:
                 os.remove(path)
             except Exception:
@@ -71,7 +66,7 @@ def write_state(key, content):
 
 def read_state(key):
     path = get_file_path(key)
-    if path is None or (os.path.exists(path) is False):
+    if path is None or not os.path.exists(path):
         return None
     try:
         with open(path, 'r') as f:
@@ -82,7 +77,7 @@ def read_state(key):
 
 def get_active_vpn():
     path = get_file_path('active')
-    if path is not None and (os.path.exists(path) is True):
+    if path is not None and os.path.exists(path):
         try:
             with open(path, "r") as f:
                 return f.read().strip() or None
@@ -99,7 +94,7 @@ def set_active_vpn(name):
         if name:
             with open(path, "w") as f:
                 f.write(name.strip())
-        elif os.path.exists(path) is True:
+        elif os.path.exists(path):
             os.remove(path)
     except Exception:
         pass

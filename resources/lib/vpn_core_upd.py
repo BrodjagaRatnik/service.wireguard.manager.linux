@@ -12,14 +12,14 @@ try:
 except ImportError:
     HAS_KODI_UI = False
 
-CONFIG_DIR = os.path.expanduser("~/.config/wireguard")
-
 
 def get_addon_path():
     return kodi_env.ADDON_DIR
 
 
 def run_update(direct_token=None, force_provider=None, silent=False):
+    from state_manager import CONFIG_DIR
+
     progress = None
 
     try:
@@ -197,7 +197,7 @@ def run_update(direct_token=None, force_provider=None, silent=False):
 
         if success:
             log_message(f"Core Update: {provider_name} profile database updated successfully.", 1)
-            if HAS_KODI_UI:
+            if HAS_KODI_UI and silent is False:
                 xbmc.executebuiltin("Container.Refresh")
             return True
 

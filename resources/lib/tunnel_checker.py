@@ -1,5 +1,6 @@
 """ ./resources/lib/tunnel_checker.py """
 import kodi_env
+import os
 import socket
 import subprocess
 import time
@@ -25,7 +26,7 @@ from vpn_utils import (
     get_dynamic_prefixes,
     get_nm_tunnel_device
 )
-from state_manager import get_active_vpn, write_state
+from state_manager import get_active_vpn, write_state, get_file_path
 from vpn_config import SANITY_POLL_INTERVAL, SANITY_SETTLE_DELAY
 from resources.scripts.killswitch import ZeroHardcodeKillSwitch
 from dialog import (
@@ -63,7 +64,7 @@ def _breaker_open_for(target_name):
                 "[BREAKER] Mismatch - state name '{}' != target '{}', breaker CLOSED".format(
                     state["name"], target_name
                 ),
-                1
+                2
             )
             return False
         log_message(f"[BREAKER] ALL CONDITIONS MET - breaker OPEN for [{target_name}]", 2)
@@ -78,13 +79,25 @@ def _breaker_open_for(target_name):
         return False
 
 
+def _session_requires_recovery(session_target):
+    if not session_target:
+        return False
+    intentional_path = get_file_path("disconnect")
+    if intentional_path is not None and os.path.exists(intentional_path) is True:
+        return False
+    conn_lock_path = get_file_path("connector_lock")
+    if conn_lock_path is not None and os.path.exists(conn_lock_path) is True:
+        return False
+    return True
+
+
 def _find_tunnel_iface():
     prefixes = get_dynamic_prefixes()
-    log_message(f"[IFACE-SEARCH] Using prefixes: {prefixes}", 1)
+    log_message(f"[IFACE-SEARCH] Using prefixes: {prefixes}", 0)
 
     log_message("[IFACE-SEARCH] Attempting NM device discovery...", 0)
     nm_name, nm_device = get_nm_tunnel_device()
-    log_message(f"[IFACE-SEARCH] NM result - name={nm_name}, device={nm_device}", 1)
+    log_message(f"[IFACE-SEARCH] NM result - name={nm_name}, device={nm_device}", 0)
     if nm_device:
         log_message(f"[IFACE-SEARCH] SUCCESS via NM: {nm_device}", 0)
         return str(nm_device)
@@ -99,7 +112,7 @@ def _find_tunnel_iface():
             "[IFACE-SEARCH] wg show output: '{}' (rc={})".format(
                 res.stdout.strip(), res.returncode
             ),
-            1
+            0
         )
         if res.returncode == 0:
             for iface in res.stdout.split():
@@ -129,7 +142,7 @@ def _find_tunnel_iface():
                 if any(p in name.lower() for p in prefixes):
                     log_message(f"[IFACE-SEARCH] MATCH via ip link: {name}", 0)
                     return str(name)
-        log_message("[IFACE-SEARCH] ip link found no prefix matches", 1)
+        log_message("[IFACE-SEARCH] ip link found no prefix matches", 0)
     except subprocess.TimeoutExpired:
         log_message("[IFACE-SEARCH] ip link discovery timed out", 2)
     except Exception as ip_err:
@@ -140,7 +153,7 @@ def _find_tunnel_iface():
             3
         )
 
-    log_message("[IFACE-SEARCH] All discovery methods exhausted, returning None", 2)
+    log_message("[IFACE-SEARCH] All discovery methods exhausted, returning None", 0)
     return None
 
 
@@ -162,77 +175,101 @@ def run_tunnel_sanity_check(run_update_if_clear=False):
 
         prefixes = get_dynamic_prefixes()
         current_default_iface = get_active_interface()
-        log_message(f"[IFACE-STATE] Default interface reported: {current_default_iface}", 1)
+        log_message(f"[IFACE-STATE] Default interface reported: {current_default_iface}", 0)
 
+        tunnel_missing_recovery = False
         if not current_default_iface:
             tunnel_iface = _find_tunnel_iface()
             if not tunnel_iface:
-                log_message("Tunnel Check: No interface info available. Skipping check.", 0)
-                return
-            current_default_iface = tunnel_iface
+                session_target = get_active_vpn()
+                if _session_requires_recovery(session_target):
+                    log_message(
+                        "Tunnel Check: Session state active but no tunnel interface present. "
+                        "Entering recovery sequence.",
+                        2
+                    )
+                    tunnel_missing_recovery = True
+                    current_default_iface = None
+                else:
+                    log_message("Tunnel Check: No interface info available. Skipping check.", 0)
+                    return
+            else:
+                current_default_iface = tunnel_iface
         else:
             is_tunnel_iface = any(p in current_default_iface.lower() for p in prefixes)
             if not is_tunnel_iface:
                 tunnel_iface = _find_tunnel_iface()
                 if not tunnel_iface:
-                    log_message(
-                        "Tunnel Check: No tunnel interface present. Nothing to verify.",
-                        0
-                    )
-                    return
-                current_default_iface = tunnel_iface
+                    session_target = get_active_vpn()
+                    if _session_requires_recovery(session_target):
+                        log_message(
+                            "Tunnel Check: Session state active but no tunnel interface present. "
+                            "Entering recovery sequence.",
+                            2
+                        )
+                        tunnel_missing_recovery = True
+                        current_default_iface = None
+                    else:
+                        log_message(
+                            "Tunnel Check: No tunnel interface present. Nothing to verify.",
+                            0
+                        )
+                        return
+                else:
+                    current_default_iface = tunnel_iface
 
-        if not is_interface_active(current_default_iface):
-            log_message("Tunnel Check: Tunnel interface exists but is inactive.", 0)
-            return
+        if tunnel_missing_recovery:
+            tunnel_is_broken = True
+        else:
+            if not is_interface_active(current_default_iface):
+                log_message("Tunnel Check: Tunnel interface exists but is inactive.", 0)
+                return
 
-        log_message(f"[PING] Testing connectivity to 1.1.1.1 via {current_default_iface}...", 0)
-        tunnel_is_broken = False
-        try:
-            start_time = time.time()
-            res = subprocess.run(
-                ["ping", "-c", "1", "-W", "2", "1.1.1.1"],
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                check=False,
-                timeout=3.0
-            )
-            elapsed = time.time() - start_time
-            ping_out = res.stdout.decode("utf-8", errors="ignore").strip()[:200]
-            ping_err = res.stderr.decode("utf-8", errors="ignore").strip()[:200]
-            log_message(
-                "[PING] Result: rc={}, time={:.2f}s, out='{}', err='{}'".format(
-                    res.returncode, elapsed, ping_out, ping_err
-                ),
-                1
-            )
-            if res.returncode != 0:
-                log_message(f"[PING] FAIL - non-zero exit code {res.returncode}", 2)
+            log_message(f"[PING] Testing connectivity to 1.1.1.1 via {current_default_iface}...", 0)
+            tunnel_is_broken = False
+            try:
+                start_time = time.time()
+                res = subprocess.run(
+                    ["ping", "-c", "1", "-W", "2", "1.1.1.1"],
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    check=False,
+                    timeout=3.0
+                )
+                elapsed = time.time() - start_time
+                ping_out = res.stdout.decode("utf-8", errors="ignore").strip()[:200]
+                ping_err = res.stderr.decode("utf-8", errors="ignore").strip()[:200]
+                log_message(
+                    "[PING] Result: rc={}, time={:.2f}s, out='{}', err='{}'".format(
+                        res.returncode, elapsed, ping_out, ping_err
+                    ),
+                    1
+                )
+                if res.returncode != 0:
+                    log_message(f"[PING] FAIL - non-zero exit code {res.returncode}", 2)
+                    tunnel_is_broken = True
+                else:
+                    log_message(f"[PING] SUCCESS - received response in {elapsed:.2f}s", 0)
+            except subprocess.TimeoutExpired:
+                log_message("[PING] TIMEOUT - process execution exceeded 3s", 2)
                 tunnel_is_broken = True
-            else:
-                log_message(f"[PING] SUCCESS - received response in {elapsed:.2f}s", 0)
-        except subprocess.TimeoutExpired:
-            log_message("[PING] TIMEOUT - process execution exceeded 3s", 2)
-            tunnel_is_broken = True
-        except Exception as ping_err:
-            log_message(
-                "Tunnel Check: Connection verification exception: {}\n{}".format(
-                    ping_err, traceback.format_exc()
-                ),
-                3
-            )
-            tunnel_is_broken = True
+            except Exception as ping_err:
+                log_message(
+                    "Tunnel Check: Connection verification exception: {}\n{}".format(
+                        ping_err, traceback.format_exc()
+                    ),
+                    3
+                )
+                tunnel_is_broken = True
 
         if not tunnel_is_broken:
             log_message("Tunnel Check: Link health verification successful. Tunnel is clear.", 0)
             if run_update_if_clear is True:
-                try:
-                    from vpn_core import check_for_updates
-                    check_for_updates("")
-                    log_message("Tunnel Check: Deferred update executed on clear tunnel.", 1)
-                except Exception as defer_update_err:
-                    log_err = f"Tunnel Check: Inline deferred update failure: {defer_update_err}"
-                    log_message(log_err, 2)
+                log_message(
+                    "Tunnel Check: Tunnel healthy - deferred update parked until "
+                    "next broken-tunnel recovery cycle.",
+                    0
+                )
             return
 
         boot_target = get_active_vpn()
@@ -244,7 +281,8 @@ def run_tunnel_sanity_check(run_update_if_clear=False):
                 "Leaving interface untouched.",
                 2
             )
-            notify_orphaned_tunnel(current_default_iface)
+            if not tunnel_missing_recovery:
+                notify_orphaned_tunnel(current_default_iface)
             return
 
         if _breaker_open_for(boot_target):
@@ -304,6 +342,8 @@ def run_tunnel_sanity_check(run_update_if_clear=False):
             nm_name, nm_device = get_nm_tunnel_device()
             if nm_device is not None:
                 return True
+            if current_default_iface is None:
+                return is_interface_active(None)
             return is_interface_active(current_default_iface)
 
         while timeout > 0:
@@ -338,7 +378,7 @@ def run_tunnel_sanity_check(run_update_if_clear=False):
                 dns_ready = True
                 break
             except socket.gaierror as gai_err:
-                log_message(f"[DNS] Gai error on attempt {dns_attempts}: {gai_err}", 1)
+                log_message(f"[DNS] Gai error on attempt {dns_attempts}: {gai_err}", 3)
                 time.sleep(0.2)
                 dns_timeout -= 0.2
             except Exception as dns_err:
@@ -362,7 +402,7 @@ def run_tunnel_sanity_check(run_update_if_clear=False):
         if dns_ready:
             try:
                 from vpn_core import check_for_updates
-                check_for_updates("")
+                check_for_updates("", force_despite_tunnel=True)
             except Exception as update_err:
                 log_message(f"Tunnel Check: Inline update invocation failed: {update_err}", 3)
         else:
@@ -381,10 +421,12 @@ def run_tunnel_sanity_check(run_update_if_clear=False):
             xbmcgui.Window(10000).setProperty('vpn_manual_session', 'true')
 
         def _report_reconnect(profile_label):
-            meta_iface = get_active_interface() or current_default_iface
-            log_message(f"[RECONNECT] Active interface post-connect: {meta_iface}", 1)
+            meta_iface = get_active_interface()
+            if meta_iface is None and current_default_iface is not None:
+                meta_iface = current_default_iface
+            log_message(f"[RECONNECT] Active interface post-connect: {meta_iface}", 0)
             ip, country = fetch_vpn_metadata(meta_iface)
-            log_message(f"[RECONNECT] Metadata result - IP={ip}, Country={country}", 1)
+            log_message(f"[RECONNECT] Metadata result - IP={ip}, Country={country}", 0)
             if ip and ip != "Unknown":
                 log_message(
                     f"Tunnel Check: Profile link [{profile_label}] verified and "

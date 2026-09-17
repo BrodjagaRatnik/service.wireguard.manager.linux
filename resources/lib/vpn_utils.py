@@ -221,8 +221,11 @@ def fetch_vpn_metadata(interface_name):
                 stderr=subprocess.DEVNULL
             )
             if ping_res.returncode != 0:
-                log_message(f"VPN_Utils: Data path verification failed via ICMP on {interface_name}", 2)
-                return None, None
+                log_message(
+                    f"VPN_Utils: ICMP probe unavailable on {interface_name}, "
+                    "continuing to TCP metadata verification",
+                    1
+                )
         except Exception as e:
             log_message(f"VPN_Utils: Ping check threw {e}", 2)
             return None, None
