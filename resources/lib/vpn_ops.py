@@ -31,6 +31,15 @@ def get_addon_path():
 
 
 def disconnect_vpn(silent=False, flush_dns=True, reason="disengaged", skip_killswitch_fallback=False):
+    profile_start = time.perf_counter()
+    profile_last = profile_start
+
+    def _profile_mark(label):
+        nonlocal profile_last
+        now_stamp = time.perf_counter()
+        log_message(f"VPN Ops Profile: {label} = {(now_stamp - profile_last) * 1000.0:.0f}ms", 0)
+        profile_last = now_stamp
+
     intentional_path = get_file_path("disconnect")
     if not skip_killswitch_fallback:
         try:
@@ -39,6 +48,7 @@ def disconnect_vpn(silent=False, flush_dns=True, reason="disengaged", skip_kills
             fallback_ks.disable(reason=reason)
         except Exception:
             log_message("VPN Ops: Killswitch manual disengage wrapper error logged", 3)
+    _profile_mark("killswitch_fallback")
     try:
         if silent is False and HAS_KODI is True:
             xbmcgui.Window(10000).setProperty("vpn_manual_session", "")
@@ -68,6 +78,7 @@ def disconnect_vpn(silent=False, flush_dns=True, reason="disengaged", skip_kills
             xbmc.sleep(PROP_SYNC_DELAY)
         else:
             time.sleep(PROP_SYNC_DELAY / 1000.0)
+        _profile_mark("session_flag_prep")
 
         try:
             out = subprocess.check_output(
@@ -87,6 +98,7 @@ def disconnect_vpn(silent=False, flush_dns=True, reason="disengaged", skip_kills
                             )
         except Exception:
             log_message("VPN Ops: Disconnect service interface operational error", 3)
+        _profile_mark("nm_profile_teardown")
 
         try:
             local_gw = get_default_gateway()
@@ -114,6 +126,7 @@ def disconnect_vpn(silent=False, flush_dns=True, reason="disengaged", skip_kills
                             )
         except Exception:
             log_message("VPN Ops: Teardown routing resolution error tracked", 0)
+        _profile_mark("stale_route_cleanup")
 
         set_secure_dns(vpn_active=False)
         set_active_vpn(None)
@@ -126,16 +139,20 @@ def disconnect_vpn(silent=False, flush_dns=True, reason="disengaged", skip_kills
             log_message("VPN Ops: Triggered NetworkManager live DNS configuration reload", 0)
         except Exception:
             pass
+        _profile_mark("dns_flush")
 
         if silent is False:
             if HAS_KODI is True:
                 xbmc.sleep(OS_RELEASE_DELAY)
             else:
                 time.sleep(OS_RELEASE_DELAY / 1000.0)
+        _profile_mark("os_release_hold")
+
         try:
             enable_linux_ipv6()
         except Exception:
             log_message("VPN Ops: Post-disconnect IPv6 restoration failed internally", 3)
+        _profile_mark("ipv6_restore")
 
         if silent is False and HAS_KODI is True:
             addon_path = get_addon_path()
@@ -143,6 +160,7 @@ def disconnect_vpn(silent=False, flush_dns=True, reason="disengaged", skip_kills
             title = "[B][COLOR FFDF00FF][ VPN Network ][/COLOR][/B]"
             msg = "[B][COLOR FFDF00FF][ DISCONNECTED ][/COLOR][/B]"
             xbmcgui.Dialog().notification(title, msg, icon_dis, 4500)
+        _profile_mark("disconnect_notify")
 
         gw = None
         try:
@@ -163,6 +181,7 @@ def disconnect_vpn(silent=False, flush_dns=True, reason="disengaged", skip_kills
                             break
             except Exception:
                 pass
+        _profile_mark("gateway_detect")
 
         if gw:
             try:
@@ -190,6 +209,7 @@ def disconnect_vpn(silent=False, flush_dns=True, reason="disengaged", skip_kills
                     log_message(f"VPN Ops: Route restored via {gw} on {target_dev}", 0)
             except Exception:
                 log_message("VPN Ops: Route Restore Core Error occurred", 3)
+        _profile_mark("default_route_restore")
 
         if HAS_KODI is True:
             xbmcgui.Window(10000).setProperty("vpn_intentional_disconnect", "")
@@ -198,6 +218,8 @@ def disconnect_vpn(silent=False, flush_dns=True, reason="disengaged", skip_kills
         log_message("VPN Ops: Disconnection core failure tracked", 3)
 
     finally:
+        _profile_total = (time.perf_counter() - profile_start) * 1000.0
+        log_message(f"VPN Ops Profile: total_disconnect = {_profile_total:.0f}ms", 0)
         if intentional_path is not None and os.path.exists(intentional_path) is True:
             try:
                 os.remove(intentional_path)

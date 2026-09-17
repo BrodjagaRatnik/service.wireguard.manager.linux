@@ -12,6 +12,7 @@ from vpn_config import (
     SHIELD_SLEEP_DELAY,
     WATCHDOG_HEARTBEAT,
     WATCHDOG_SETTLE_DELAY,
+    LOG_WATCHDOG_DEBUG
 )
 from vpn_utils import (
     get_active_interface,
@@ -51,21 +52,33 @@ LAST_INTERFACE = None
 BLACKOUT_ALERTED = False
 SAVED_GATEWAY = None
 ACTIVE_HELPER_PROC = None
+CONN_LOCK_WAS_ACTIVE = False
 
 
 def handle_shutdown_signal(signum, frame):
-    log_message("Service: Received shutdown signal from systemd. Cleaning up...", 2)
+    log_message("Service: Received shutdown signal. Cleaning up...", 2)
     if ACTIVE_HELPER_PROC and ACTIVE_HELPER_PROC.poll() is None:
         log_message("Service: Terminating active background reconnect helper.", 2)
         ACTIVE_HELPER_PROC.terminate()
     sys.exit(0)
 
 
-signal.signal(signal.SIGTERM, handle_shutdown_signal)
+def _abort_requested(stop_check):
+    return stop_check is not None and stop_check() is True
 
 
-def watchdog_logic():
-    global LAST_INTERFACE, BLACKOUT_ALERTED, ACTIVE_HELPER_PROC
+def _wait_for_helper(stop_check=None):
+    global ACTIVE_HELPER_PROC
+    while ACTIVE_HELPER_PROC is not None and ACTIVE_HELPER_PROC.poll() is None:
+        if _abort_requested(stop_check):
+            ACTIVE_HELPER_PROC.terminate()
+            break
+        time.sleep(0.2)
+    ACTIVE_HELPER_PROC = None
+
+
+def watchdog_logic(stop_check=None):
+    global LAST_INTERFACE, BLACKOUT_ALERTED, ACTIVE_HELPER_PROC, CONN_LOCK_WAS_ACTIVE
 
     prefixes = get_dynamic_prefixes()
     active_phys_iface = get_physical_interface()
@@ -90,14 +103,22 @@ def watchdog_logic():
                 BLACKOUT_ALERTED = True
         return
 
-    log_message("Watchdog Check: Commencing logical evaluation cycle.", 0)
+    if LOG_WATCHDOG_DEBUG:
+        log_message("Watchdog Check: Commencing logical evaluation cycle.", 0)
 
     conn_lock_path = get_file_path("connector_lock")
-    if conn_lock_path is not None and os.path.exists(conn_lock_path) is True:
-        log_message("Watchdog Check: Active connector lock found. Aborting evaluation.", 0)
+    conn_lock_present = conn_lock_path is not None and os.path.exists(conn_lock_path) is True
+    if conn_lock_present is True:
+        if CONN_LOCK_WAS_ACTIVE is False:
+            log_message("Watchdog Check: Active connector lock found. Pausing evaluation until released.", 2)
+            CONN_LOCK_WAS_ACTIVE = True
         return
+    if CONN_LOCK_WAS_ACTIVE is True:
+        log_message("Watchdog Check: Connector lock released. Resuming evaluation.", 1)
+        CONN_LOCK_WAS_ACTIVE = False
 
-    log_message(f"Watchdog Check: Blackout alert tracking state is {BLACKOUT_ALERTED}", 0)
+    if LOG_WATCHDOG_DEBUG:
+        log_message(f"Watchdog Check: Blackout alert tracking state is {BLACKOUT_ALERTED}", 0)
     if BLACKOUT_ALERTED is True:
         if is_connected:
             log_message("Service: Physical connection restored.", 1)
@@ -124,8 +145,8 @@ def watchdog_logic():
     except Exception:
         pass
 
-    log_msg = f"Watchdog Check: Dynamic evaluation yields wg0_active={wg0_active} ({current_iface})"
-    log_message(log_msg, 0)
+    if LOG_WATCHDOG_DEBUG:
+        log_message(f"Watchdog Check: Dynamic evaluation yields wg0_active={wg0_active} ({current_iface})", 0)
     if wg0_active is True:
         LAST_INTERFACE = current_iface
         intentional_path = get_file_path("disconnect")
@@ -140,35 +161,39 @@ def watchdog_logic():
         sf_ex = state_path is not None and os.path.exists(state_path) is True
         if_ex = intentional_path is not None and os.path.exists(intentional_path) is True
         should_be_active = sf_ex and not if_ex
-        log_msg = f"Watchdog Check: File targets: state={sf_ex}, intentional={if_ex}, result={should_be_active}"
-        log_message(log_msg, 0)
+        if LOG_WATCHDOG_DEBUG:
+            log_message(f"Watchdog Check: File targets: state={sf_ex}, intentional={if_ex}, result={should_be_active}", 0)
 
         if should_be_active is True:
             log_message("Service: Internet detected but Tunnel missing. Triggering Helper...", 2)
             ACTIVE_HELPER_PROC = subprocess.Popen([sys.executable, HELPER_SCRIPT])
-            while ACTIVE_HELPER_PROC.poll() is None:
-                time.sleep(0.2)
-            ACTIVE_HELPER_PROC = None
+            _wait_for_helper(stop_check)
             log_msg = f"Watchdog Check: Helper finished. Pausing for settle interval: {WATCHDOG_SETTLE_DELAY}ms"
-            log_message(log_msg, 0)
+            log_message(log_msg, 1)
             time.sleep(WATCHDOG_SETTLE_DELAY / 1000.0)
             return
 
     eth_online, wifi_online = check_interface_status()
-    log_msg = f"Watchdog Check: Active default interface={current_iface}, eth={eth_online}, wifi={wifi_online}"
-    log_message(log_msg, 0)
+    if LOG_WATCHDOG_DEBUG:
+        log_msg = f"Watchdog Check: Active default interface={current_iface}, eth={eth_online}, wifi={wifi_online}"
+        log_message(log_msg, 0)
     if (eth_online or wifi_online) and not current_iface and not wg0_active:
-        log_message("Service: Physical link active but no default route. Triggering Helper...", 2)
-        ACTIVE_HELPER_PROC = subprocess.Popen([sys.executable, HELPER_SCRIPT])
-        while ACTIVE_HELPER_PROC.poll() is None:
-            time.sleep(0.2)
-        ACTIVE_HELPER_PROC = None
-        time.sleep(WATCHDOG_SETTLE_DELAY / 1000.0)
-        return
+        state_path = get_file_path("active")
+        intentional_path = get_file_path("disconnect")
+        has_session = (
+            state_path is not None and os.path.exists(state_path) is True
+            and intentional_path is not None and os.path.exists(intentional_path) is False
+        )
+        if has_session is True:
+            log_message("Service: Physical link active but no default route. Triggering Helper...", 2)
+            ACTIVE_HELPER_PROC = subprocess.Popen([sys.executable, HELPER_SCRIPT])
+            _wait_for_helper(stop_check)
+            log_msg = f"Watchdog Check: Helper finished. Pausing for settle interval: {WATCHDOG_SETTLE_DELAY}ms"
+            log_message(log_msg, 1)
+            time.sleep(WATCHDOG_SETTLE_DELAY / 1000.0)
+            return
 
     if current_iface and not any(x in current_iface.lower() for x in prefixes):
-        log_msg = f"Watchdog Check: Interface transition tracking: last={LAST_INTERFACE}, current={current_iface}"
-        log_message(log_msg, 0)
         if LAST_INTERFACE != current_iface:
             log_message(f"Service: Network interface switched to {current_iface}", 1)
 
@@ -176,9 +201,7 @@ def watchdog_logic():
             if state_path is not None and os.path.exists(state_path) is True:
                 log_message("Service: Active profile configuration state found. Forcing reconnect helper.", 2)
                 ACTIVE_HELPER_PROC = subprocess.Popen([sys.executable, HELPER_SCRIPT])
-                while ACTIVE_HELPER_PROC.poll() is None:
-                    time.sleep(0.2)
-                ACTIVE_HELPER_PROC = None
+                _wait_for_helper(stop_check)
                 LAST_INTERFACE = get_active_interface()
                 return
 
@@ -191,7 +214,9 @@ def watchdog_logic():
             LAST_INTERFACE = current_iface
 
 
-if __name__ == "__main__":
+def run_watchdog(stop_check=None):
+    global LAST_INTERFACE, BLACKOUT_ALERTED
+
     startup_blackout_path = get_file_path("blackout")
     if startup_blackout_path is not None and os.path.exists(startup_blackout_path) is True:
         try:
@@ -201,14 +226,17 @@ if __name__ == "__main__":
             log_message(f"Service: Could not remove stale blackout lock: {e}", 3)
 
     startup_attempts = 0
+    saved_gateway = None
     while startup_attempts < 15:
-        SAVED_GATEWAY = get_default_gateway()
-        if SAVED_GATEWAY is not None:
+        if _abort_requested(stop_check):
+            return
+        saved_gateway = get_default_gateway()
+        if saved_gateway is not None:
             break
         startup_attempts += 1
         time.sleep(0.3)
 
-    if SAVED_GATEWAY is None:
+    if saved_gateway is None:
         phys_startup_iface = get_physical_interface()
         if phys_startup_iface and is_physically_connected(phys_startup_iface):
             log_message("Service: Gateway not in main table (policy routing) but physical link is up. Proceeding.", 2)
@@ -218,9 +246,11 @@ if __name__ == "__main__":
                 BLACKOUT_ALERTED = True
             log_message("Service: Waiting for gateway...", 2)
 
-            while SAVED_GATEWAY is None:
-                SAVED_GATEWAY = get_default_gateway()
-                if SAVED_GATEWAY is not None:
+            while saved_gateway is None:
+                if _abort_requested(stop_check):
+                    return
+                saved_gateway = get_default_gateway()
+                if saved_gateway is not None:
                     break
                 time.sleep(SHIELD_SLEEP_DELAY / 1000.0)
 
@@ -231,28 +261,38 @@ if __name__ == "__main__":
     cooldown_loops = 0
 
     try:
-        while True:
-            manual_path = get_file_path("manual")
-            intentional_path = get_file_path("disconnect")
-            has_manual = manual_path is not None and os.path.exists(manual_path) is True
-            has_intentional = intentional_path is not None and os.path.exists(intentional_path) is True
+        while _abort_requested(stop_check) is False:
+            try:
+                manual_path = get_file_path("manual")
+                intentional_path = get_file_path("disconnect")
+                has_manual = manual_path is not None and os.path.exists(manual_path) is True
+                has_intentional = intentional_path is not None and os.path.exists(intentional_path) is True
 
-            if has_manual or has_intentional:
-                if not shield_logged:
-                    log_message("Service: SHIELD ACTIVE - SESSION FOUND. Pausing watchdog.", 0)
-                    shield_logged = True
-                cooldown_loops = int(SHIELD_SLEEP_DELAY / WATCHDOG_HEARTBEAT)
-            else:
-                if shield_logged:
-                    log_message("Service: Shield cleared. Resuming watchdog operation.", 0)
-                shield_logged = False
-
-                if cooldown_loops > 0:
-                    cooldown_loops -= 1
+                if has_manual or has_intentional:
+                    if not shield_logged:
+                        log_message("Service: SHIELD ACTIVE - SESSION FOUND. Pausing watchdog.", 0)
+                        shield_logged = True
+                    cooldown_loops = int(SHIELD_SLEEP_DELAY / WATCHDOG_HEARTBEAT)
                 else:
-                    watchdog_logic()
+                    if shield_logged:
+                        log_message("Service: Shield cleared. Resuming watchdog operation.", 0)
+                    shield_logged = False
+
+                    if cooldown_loops > 0:
+                        cooldown_loops -= 1
+                    else:
+                        watchdog_logic(stop_check)
+            except Exception as watch_err:
+                log_message(f"Service: Watchdog iteration failure contained: {watch_err}", 3)
+                cooldown_loops = 1
 
             time.sleep(WATCHDOG_HEARTBEAT / 1000.0)
 
     finally:
-        kodi_env.clear_script_globals()
+        if stop_check is None:
+            kodi_env.clear_script_globals()
+
+
+if __name__ == "__main__":
+    signal.signal(signal.SIGTERM, handle_shutdown_signal)
+    run_watchdog()

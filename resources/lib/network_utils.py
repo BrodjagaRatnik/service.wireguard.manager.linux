@@ -182,15 +182,23 @@ def toggle_sysctl_ipv6(disable=True):
 
 
 def manage_networkmanager_services(ipv6_mode="disabled"):
+    modified_count = 0
+    physical_types = ("ethernet", "802-3-ethernet", "wireless", "802-11-wireless")
     try:
-        result = subprocess.check_output(["nmcli", "-t", "-f", "UUID", "connection", "show"], text=True)
+        result = subprocess.check_output(
+            ["nmcli", "-t", "-f", "UUID,TYPE", "connection", "show"],
+            text=True
+        )
         for line in result.splitlines():
-            uuid = line.strip()
-            if uuid:
-                subprocess.run(
-                    ["nmcli", "connection", "modify", uuid, "ipv6.method", ipv6_mode],
-                    check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
-                )
+            if ":" in line:
+                uuid, c_type = line.split(":", 1)
+                if uuid and c_type.strip().lower() in physical_types:
+                    subprocess.run(
+                        ["nmcli", "connection", "modify", uuid, "ipv6.method", ipv6_mode],
+                        check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
+                    )
+                    modified_count += 1
+        log_message(f"Network Utils: IPv6 [{ipv6_mode}] applied to {modified_count} physical connections.", 0)
     except Exception:
         pass
 

@@ -243,7 +243,7 @@ def run_tunnel_sanity_check(run_update_if_clear=False):
                     "[PING] Result: rc={}, time={:.2f}s, out='{}', err='{}'".format(
                         res.returncode, elapsed, ping_out, ping_err
                     ),
-                    1
+                    0
                 )
                 if res.returncode != 0:
                     log_message(f"[PING] FAIL - non-zero exit code {res.returncode}", 2)

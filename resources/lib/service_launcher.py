@@ -8,7 +8,8 @@ import dialog
 import subprocess
 import vpn_ops
 from logger import log_message
-from vpn_config import PI2, PI3, PI4, PI5, WATCHDOG_HEARTBEAT
+from vpn_config import PI2, PI3, PI4, PI5, WATCHDOG_HEARTBEAT, WATCHDOG_SETTLE_DELAY
+from service import run_watchdog
 from service_updater import handle_settings_update
 from service_resolver import resolve_service_id
 from service_loop import execute_monitor_loop
@@ -28,9 +29,10 @@ except ImportError:
     HAS_KODI_MONITOR = False
 
 try:
-    from setup_helper import ensure_setup
+    from setup_helper import ensure_setup, migrate_legacy_watchdog_unit
 except ImportError:
     from setup_utils import ensure_setup
+    migrate_legacy_watchdog_unit = None
 
 
 def _match_config_name(token):
@@ -291,12 +293,32 @@ def _maybe_auto_connect(addon_obj, action):
         log_message(f"Service Launcher: auto_connect failed: {ac_err}", 2)
 
 
+def _rotate_standalone_log():
+    script_path = os.path.dirname(__file__)
+    addon_id, _addon_ver = __import__('logger').get_addon_metadata()
+    data_dir = os.path.normpath(
+        os.path.join(script_path, "..", "..", "..", "..", "userdata", "addon_data", addon_id)
+    )
+    current_log = os.path.join(data_dir, "standalone_wm.log")
+    old_log = os.path.join(data_dir, "standalone_wm.log.old")
+
+    try:
+        if os.path.exists(old_log):
+            os.remove(old_log)
+        if os.path.exists(current_log):
+            os.rename(current_log, old_log)
+    except Exception:
+        pass
+
+
 def start():
     addon_obj = kodi_env.get_addon_instance()
     if not addon_obj or not HAS_KODI_MONITOR:
         log_message("Service Launcher: Abstractions missing. Background monitoring disabled.", 2)
         kodi_env.clear_script_globals()
         return
+
+    _rotate_standalone_log()
 
     path = kodi_env.ADDON_DIR
 
@@ -351,6 +373,22 @@ def start():
 
     _maybe_auto_connect(addon_obj, action)
 
+    if migrate_legacy_watchdog_unit is not None:
+        migrate_legacy_watchdog_unit()
+
+    watchdog_thread = None
+    try:
+        watchdog_thread = threading.Thread(
+            target=run_watchdog,
+            args=(monitor.abortRequested,),
+            daemon=True,
+            name="wg-manager-watchdog"
+        )
+        watchdog_thread.start()
+        log_message("Service Launcher: Integrated watchdog thread started.", 1)
+    except Exception as wd_err:
+        log_message(f"Service Launcher: Integrated watchdog start failure: {wd_err}", 3)
+
     try:
         hb = WATCHDOG_HEARTBEAT / 1000.0
     except Exception:
@@ -362,6 +400,9 @@ def start():
             if monitor.waitForAbort(hb) is True:
                 break
     finally:
+        if watchdog_thread is not None and watchdog_thread.is_alive():
+            join_window = (WATCHDOG_HEARTBEAT + WATCHDOG_SETTLE_DELAY) / 1000.0 + 2.0
+            watchdog_thread.join(timeout=join_window)
         del monitor
         kodi_env.clear_script_globals()
 

@@ -185,6 +185,9 @@ def connect_vpn(vpn_name, sid, instance, silent=False, tried_profiles=None):
                 return False
 
         log_message(f"VPN Connector: Connecting to {vpn_name}", 0)
+        if silent is True:
+            dialog.notify_tunnelling(vpn_name, duration_ms=4000)
+
         profile_id = sid.replace(".conf", "") if sid.endswith(".conf") else sid
         tried_profiles.add(profile_id)
 

@@ -3,6 +3,7 @@ import kodi_env
 import builtins
 import os
 import sys
+import time
 import xml.etree.ElementTree as ET
 
 try:
@@ -31,6 +32,15 @@ def get_addon_metadata():
         return "service.wireguard.manager.linux", "unknown"
 
 
+def _standalone_log_path():
+    script_path = os.path.dirname(__file__)
+    addon_id, _addon_ver = get_addon_metadata()
+    data_dir = os.path.normpath(
+        os.path.join(script_path, "..", "..", "..", "..", "userdata", "addon_data", addon_id)
+    )
+    return os.path.join(data_dir, "standalone_wm.log")
+
+
 def log_message(msg, level=1):
     if level is None:
         level = 1
@@ -41,6 +51,16 @@ def log_message(msg, level=1):
     if HAS_KODI_LOGGING and kodi_env.HAS_KODI_IMPORTS:
         xbmc.log(formatted_msg, level)
     else:
+        lvl_name = {0: "Debug", 1: "Info", 2: "Warning", 3: "Error"}.get(level, "Info")
+
+        try:
+            stamp = time.strftime("%Y-%m-%d %H:%M:%S")
+            file_line = f"{stamp} T:{os.getpid()} [{lvl_name}] {formatted_msg}\n"
+            with open(_standalone_log_path(), "a") as standalone_handle:
+                standalone_handle.write(file_line)
+        except Exception:
+            pass
+
         is_debug_active = False
         script_path = os.path.dirname(__file__)
         gui_xml = os.path.normpath(
@@ -58,7 +78,6 @@ def log_message(msg, level=1):
         if level == 0 and not is_debug_active:
             return
 
-        lvl_name = {0: "Debug", 1: "Info", 2: "Warning", 3: "Error"}.get(level, "Info")
         console_msg = f"[{lvl_name}] {formatted_msg}\n"
 
         if level in (2, 3):

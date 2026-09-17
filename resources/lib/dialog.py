@@ -76,12 +76,12 @@ def notify_tunnel_restored(vpn_name, ip, country):
     _notify_safe(title, msg, _icon_path("vpn_connected.png"), 4500)
 
 
-def notify_tunnelling(vpn_name):
+def notify_tunnelling(vpn_name, duration_ms=1500):
     if not HAS_KODI:
         return
     title = "[B][COLOR FFFFFF00][ TUNNELLING ][/COLOR][/B]"
     msg = f"[B][COLOR FFFFFF00]{vpn_name}[/COLOR][/B]\n[B]Syncing kernel routing state...[/B]"
-    _notify_safe(title, msg, _icon_path("force.png"), 1500)
+    _notify_safe(title, msg, _icon_path("force.png"), duration_ms)
 
 
 def notify_vpn_failure(err_msg):

@@ -1,6 +1,19 @@
 CHANGELOG
 =========
 
+v1.0.5 (2026-09-18)
+
+- Changed: Watchdog migrated from systemd user-unit to integrated Kodi service thread
+- Changed: Legacy vpn-watchdog.service is stopped and removed automatically on upgrade
+- Added: Watchdog activity visible in kodi.log with self-healing loop
+- Added: Session gate prevents helper spawns on boot without active session
+- Added: Connector lock logging reduced to once-per-event (no more spam)
+- Added: Helper subprocess logging to standalone_wm.log with timestamp and PID
+- Added: Log rotation on Kodi restart (standalone_wm.log → .old)
+- Added: TUNNELLING toast shown during silent reconnect attempts
+- Improved: Service resolver speed from 7s to under 30ms via prefix filtering and exact-match fast-path
+- Improved: IPv6 management now targets only physical adapters, cutting disconnect time from 7s to under 1s and full location switches from 16s to under 3s
+
 v1.0.4 (2026-09-17)
 
 - Added: Cooldown functionality for rapid reconnection attempts (vpn_core.py)

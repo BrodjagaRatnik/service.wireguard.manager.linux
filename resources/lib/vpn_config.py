@@ -50,8 +50,7 @@ CONNMAN_RESTART_DELAY = 100 if PI5 else (150 if PI4 else (100 if (PI3 or PI2) el
 SANITY_POLL_INTERVAL = 500 if PI5 else (1000 if PI4 else (1500 if PI3 or PI2 else 1000))
 SANITY_SETTLE_DELAY = 500 if PI5 else (1000 if PI4 else (1500 if PI3 or PI2 else 1000))
 CONNMAN_SETTLE_DELAY = 100 if PI5 else (100 if PI4 else (100 if (PI3 or PI2) else 100))
-META_SETTLE_DELAY = 0.5 if PI5 else (0.5 if PI4 else (0.5 if (PI3 or PI2) else 1))
-META_HTTP_ATTEMPTS = 2
+LOG_WATCHDOG_DEBUG = False
 
 try:
     import xbmc

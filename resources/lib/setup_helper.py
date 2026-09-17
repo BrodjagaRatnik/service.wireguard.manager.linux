@@ -33,24 +33,35 @@ def _setup_paths():
 _setup_paths()
 
 
+def migrate_legacy_watchdog_unit():
+    user_systemd_dir = os.path.expanduser("~/.config/systemd/user/")
+    service_file = os.path.join(user_systemd_dir, "vpn-watchdog.service")
+
+    if os.path.exists(service_file) is not True:
+        return False
+
+    try:
+        subprocess.run(["systemctl", "--user", "stop", "vpn-watchdog.service"], check=False)
+        subprocess.run(["systemctl", "--user", "disable", "vpn-watchdog.service"], check=False)
+        os.remove(service_file)
+        subprocess.run(["systemctl", "--user", "daemon-reload"], check=False)
+        log_message("Setup Helper: Legacy watchdog user unit removed. Integrated Kodi watchdog takes over.", 1)
+        return True
+    except Exception as migrate_err:
+        log_message(f"Setup Helper: Legacy watchdog unit migration failure: {migrate_err}", 3)
+        return False
+
+
 def perform_cleanup(silent=False):
     addon = kodi_env.get_addon_instance()
     home_dir = os.path.expanduser("~")
     desktop_dir = os.path.join(home_dir, "Desktop")
     wg_config_path = os.path.expanduser("~/.config/wireguard/")
-    user_systemd_dir = os.path.expanduser("~/.config/systemd/user/")
-    service_file = os.path.join(user_systemd_dir, "vpn-watchdog.service")
     recovery_script = os.path.join(home_dir, "vpn_recovery.sh")
     recovery_desktop = os.path.join(desktop_dir, "vpn_recovery.desktop")
 
     try:
         log_message("Setup Helper: Cleanup Starting factory reset...", 1)
-
-        if os.path.exists(service_file) is True:
-            subprocess.run(["systemctl", "--user", "stop", "vpn-watchdog.service"], check=False)
-            subprocess.run(["systemctl", "--user", "disable", "vpn-watchdog.service"], check=False)
-            os.remove(service_file)
-            subprocess.run(["systemctl", "--user", "daemon-reload"], check=False)
 
         try:
             from vpn_utils import get_dynamic_prefixes
@@ -139,9 +150,6 @@ def ensure_setup(addon_path, silent=False):
         keymap_dest = xbmcvfs.translatePath("special://userdata/keymaps/wireguard_manager_key.xml")
         keymap_source = os.path.join(addon_path, "resources", "keymaps", "wireguard_manager_key.xml")
         wg_config_path = os.path.expanduser("~/.config/wireguard/")
-        user_systemd_dir = os.path.expanduser("~/.config/systemd/user/")
-        service_dest = os.path.join(user_systemd_dir, "vpn-watchdog.service")
-        service_source = os.path.join(addon_path, "resources", "data", "vpn-watchdog.service.txt")
         cert_source = os.path.join(addon_path, "resources", "data", "ca.rsa.4096.txt")
         cert_dest = os.path.join(addon_path, "resources", "lib", "providers", "ca.rsa.4096.crt")
         recovery_source = os.path.join(addon_path, "resources", "data", "vpn-recovery.sh.txt")
@@ -163,30 +171,9 @@ def ensure_setup(addon_path, silent=False):
             except Exception as e:
                 log_message(f"Setup Helper: Setup Error (Keymap): {e}", 3)
 
-        progress.update(40, "Installing Linux User Watchdog Service...")
-        if not os.path.exists(service_dest):
-            try:
-                os.makedirs(user_systemd_dir, exist_ok=True)
-
-                with open(service_source, "r") as sf:
-                    template = sf.read()
-
-                service_script_path = os.path.join(addon_path, "resources", "lib", "service.py")
-                formatted_service = template.format(
-                    python_exec=sys.executable,
-                    service_script=service_script_path
-                )
-
-                with open(service_dest, "w") as df:
-                    df.write(formatted_service)
-
-                subprocess.run(["systemctl", "--user", "daemon-reload"], check=False)
-                subprocess.run(["systemctl", "--user", "enable", "vpn-watchdog.service"], check=False)
-                subprocess.run(["systemctl", "--user", "start", "vpn-watchdog.service"], check=False)
-                log_message("Setup Helper: Watchdog user-space service installed and active.", 1)
-                setup_updated = True
-            except Exception as e:
-                log_message(f"Setup Helper: Setup Error (User Service): {e}", 3)
+        progress.update(40, "Migrating watchdog integration...")
+        if migrate_legacy_watchdog_unit() is True:
+            setup_updated = True
 
         progress.update(60, "Deploying PIA provider certificates...")
         if not os.path.exists(cert_dest):
