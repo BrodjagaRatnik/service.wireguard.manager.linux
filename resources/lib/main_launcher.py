@@ -24,7 +24,7 @@ builtins.log_event = log_message
 def _write_notification_lock():
     notification_lock = get_file_path("notif_lock")
     if notification_lock is None or os.path.exists(notification_lock):
-        return notification_lock is not None and not os.path.exists(notification_lock)
+        return False
     try:
         lock_dir = os.path.dirname(notification_lock)
         if not os.path.exists(lock_dir):

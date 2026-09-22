@@ -7,7 +7,7 @@ import threading
 import dialog
 import subprocess
 import vpn_ops
-from logger import log_message
+from logger import log_message, rotate_standalone_log
 from vpn_config import PI2, PI3, PI4, PI5, WATCHDOG_HEARTBEAT, WATCHDOG_SETTLE_DELAY
 from service import run_watchdog
 from service_updater import handle_settings_update
@@ -29,10 +29,9 @@ except ImportError:
     HAS_KODI_MONITOR = False
 
 try:
-    from setup_helper import ensure_setup, migrate_legacy_watchdog_unit
+    from setup_helper import ensure_setup
 except ImportError:
     from setup_utils import ensure_setup
-    migrate_legacy_watchdog_unit = None
 
 
 def _match_config_name(token):
@@ -51,7 +50,8 @@ def _match_config_name(token):
 
 def _restore_manual_property_from_disk():
     try:
-        if read_state('manual') == 'true':
+        manual_state = read_state('manual')
+        if manual_state:
             if HAS_KODI_MONITOR:
                 xbmcgui.Window(10000).setProperty('vpn_manual_session', 'true')
             log_message("Service Launcher: Manual session property restored from disk state.", 0)
@@ -173,7 +173,7 @@ if HAS_KODI_MONITOR:
                         log_err = f"Service Launcher: Update verification failure: {e}"
                         log_message(log_err, 3)
 
-            if (current_time - self.last_tunnel_check_time) >= 300.0:
+            if (current_time - self.last_tunnel_check_time) >= 30.0:
                 self.last_tunnel_check_time = current_time
                 if self._ADDON.getSettingBool("check_tunnel"):
                     try:
@@ -181,6 +181,27 @@ if HAS_KODI_MONITOR:
                     except Exception as e:
                         log_err = f"Service Launcher: Tunnel health tracking exception: {e}"
                         log_message(log_err, 3)
+
+
+def _migrate_legacy_session_settings(addon_obj):
+    try:
+        if addon_obj.getSettingBool("session_migrated") is True:
+            return
+        legacy_restore = False
+        try:
+            if addon_obj.getSettingBool("auto_connect") is True:
+                legacy_restore = True
+        except Exception:
+            pass
+        addon_obj.setSettingBool("session_restore_on_start", legacy_restore)
+        addon_obj.setSettingBool("session_migrated", True)
+        log_message(
+            f"Service Launcher: Legacy session settings migrated. "
+            f"session_restore_on_start={legacy_restore}",
+            1
+        )
+    except Exception as migrate_err:
+        log_message(f"Service Launcher: Session setting migration error: {migrate_err}", 2)
 
 
 def _process_leftover_tunnel(addon_obj, boot_target):
@@ -198,22 +219,21 @@ def _process_leftover_tunnel(addon_obj, boot_target):
     if leftover_iface is None:
         return (None, None)
 
-    disconnect_on_start = True
+    restore_session = False
     try:
-        disconnect_on_start = addon_obj.getSettingBool("disconnect_on_start")
+        restore_session = addon_obj.getSettingBool("session_restore_on_start")
     except Exception:
         pass
 
-    if disconnect_on_start is False:
+    if restore_session is True:
         session = boot_target or leftover_iface
         try:
             set_active_vpn(session)
-            write_state('idle', 'false')
         except Exception:
             pass
         _restore_manual_property_from_disk()
         log_message(
-            f"Service Launcher: disconnect_on_start disabled. Previous tunnel "
+            f"Service Launcher: session_restore_on_start enabled. Previous tunnel "
             f"[{session}] kept active at startup.", 1
         )
         return ("kept", session)
@@ -228,12 +248,18 @@ def _process_leftover_tunnel(addon_obj, boot_target):
 
     try:
         set_active_vpn("")
-        write_state('idle', 'false')
     except Exception:
         pass
 
+    manual_path = get_file_path("manual")
+    if manual_path is not None and os.path.exists(manual_path) is True:
+        try:
+            os.remove(manual_path)
+        except Exception:
+            pass
+
     log_message(
-        f"Service Launcher: disconnect_on_start enabled. Leftover tunnel "
+        f"Service Launcher: session_restore_on_start disabled. Leftover tunnel "
         f"[{leftover_iface}] torn down for clean startup.", 1
     )
     return ("disconnected", leftover_iface)
@@ -241,11 +267,11 @@ def _process_leftover_tunnel(addon_obj, boot_target):
 
 def _maybe_auto_connect(addon_obj, action):
     try:
-        if addon_obj.getSettingBool("auto_connect") is False:
+        if addon_obj.getSettingBool("session_restore_on_start") is False:
             return
         if action == "kept":
             log_message(
-                "Service Launcher: auto_connect enabled. Previous tunnel kept "
+                "Service Launcher: session_restore_on_start enabled. Previous tunnel kept "
                 "active at startup - no reconnect needed.", 1
             )
             return
@@ -253,14 +279,13 @@ def _maybe_auto_connect(addon_obj, action):
         sid = read_state('last_profile')
         if not sid:
             log_message(
-                "Service Launcher: auto_connect enabled but no last used "
+                "Service Launcher: session_restore_on_start enabled but no last used "
                 "profile recorded yet.", 1
             )
             return
         if not os.path.exists(os.path.join(CONFIG_DIR, f"{sid}.conf")):
             log_message(
-                f"Service Launcher: auto_connect profile [{sid}] no longer "
-                f"exists. Skipping.", 2
+                f"Service Launcher: restore profile [{sid}] no longer exists. Skipping.", 2
             )
             return
 
@@ -274,26 +299,27 @@ def _maybe_auto_connect(addon_obj, action):
             vpn_name = sid
 
         log_message(
-            f"Service Launcher: auto_connect reconnecting last used "
+            f"Service Launcher: session_restore_on_start reconnecting last used "
             f"profile [{sid}]", 1
         )
         connected = vpn_ops.connect_vpn(vpn_name, sid, silent=False)
         if connected is True:
-            write_state('manual', 'true')
+            write_state('manual', vpn_name)
             try:
                 if HAS_KODI_MONITOR:
                     xbmcgui.Window(10000).setProperty('vpn_manual_session', 'true')
             except Exception:
                 pass
             log_message(
-                f"Service Launcher: auto_connect session [{sid}] registered "
-                f"as manual to protect it from mapped-session timeouts.", 1
+                f"Service Launcher: Restored session [{sid}] registered as manual "
+                f"to protect it from mapped-session timeouts.", 1
             )
     except Exception as ac_err:
-        log_message(f"Service Launcher: auto_connect failed: {ac_err}", 2)
+        log_message(f"Service Launcher: session_restore_on_start failed: {ac_err}", 2)
 
 
 def _rotate_standalone_log():
+    rotate_standalone_log(True)
     script_path = os.path.dirname(__file__)
     addon_id, _addon_ver = __import__('logger').get_addon_metadata()
     data_dir = os.path.normpath(
@@ -319,6 +345,7 @@ def start():
         return
 
     _rotate_standalone_log()
+    _migrate_legacy_session_settings(addon_obj)
 
     path = kodi_env.ADDON_DIR
 
@@ -360,7 +387,10 @@ def start():
                     5000
                 )
         elif action == "kept":
-            dialog.notify_session_available(read_friendly_name(session))
+            dialog.notify_connected(
+                read_friendly_name(session), "Unknown", "Unknown",
+                context="service_launcher"
+            )
         elif boot_target:
             log_message(
                 f"Service Launcher: Previous session [{boot_target}] found. "
@@ -372,9 +402,6 @@ def start():
         pass
 
     _maybe_auto_connect(addon_obj, action)
-
-    if migrate_legacy_watchdog_unit is not None:
-        migrate_legacy_watchdog_unit()
 
     watchdog_thread = None
     try:

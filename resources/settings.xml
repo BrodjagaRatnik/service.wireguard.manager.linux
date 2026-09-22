@@ -18,14 +18,23 @@
 					</control>
 				</setting>
 				<setting id="disconnect_on_start" type="boolean" label="32033" help="32036">
-					<level>0</level>
+					<level>4</level>
 					<default>true</default>
 					<control type="toggle"/>
 				</setting>
 				<setting id="auto_connect" type="boolean" label="32079" help="32080">
+					<level>4</level>
+					<default>false</default>
+					<control type="toggle"/>
+				</setting>
+				<setting id="session_restore_on_start" type="boolean" label="32085" help="32086">
 					<level>0</level>
 					<default>false</default>
 					<control type="toggle"/>
+				</setting>
+				<setting id="session_migrated" type="boolean">
+					<level>4</level>
+					<default>false</default>
 				</setting>
 			</group>
 			<group id="100" label="32037">
@@ -596,12 +605,6 @@
 						<data>RunScript(service.wireguard.manager.linux, mode=restart)</data>
 					</control>
 				</setting>
-				<setting id="force_reinstall" type="action" parent="watchdog_status" label="32014">
-					<level>3</level>
-					<control type="button" format="action">
-						<data>RunScript(service.wireguard.manager.linux, mode=reinstall)</data>
-					</control>
-				</setting>
 			</group>
 			<group id="16" label="32062">
 				<setting id="dnsleaktest" type="action" label="32063" help="32064">
@@ -615,13 +618,34 @@
 				<setting id="net_reset" type="action" label="32067" help="32068">
 					<level>3</level>
 					<control type="button" format="action">
-						<data>RunScript(service.wireguard.manager.linux, mode=mode=net_reset)</data>
+						<data>RunScript(service.wireguard.manager.linux, mode=net_reset)</data>
 					</control>
 				</setting>
 				<setting id="factory_reset" type="action" label="32015" help="32029">
 					<level>3</level>
 					<control type="button" format="action">
 						<data>RunScript(service.wireguard.manager.linux, mode=cleanup)</data>
+					</control>
+				</setting>
+			</group>
+			<group id="17" label="32084">
+				<setting id="log_rotation_enabled" type="boolean" label="32081">
+					<level>0</level>
+					<default>true</default>
+					<control type="toggle"/>
+				</setting>
+				<setting id="log_rotation_max_mb" type="number" label="32082">
+					<level>0</level>
+					<default>10</default>
+					<control type="edit" format="integer">
+						<heading>32082</heading>
+					</control>
+				</setting>
+				<setting id="log_rotation_backup_count" type="number" label="32083">
+					<level>0</level>
+					<default>2</default>
+					<control type="edit" format="integer">
+						<heading>32083</heading>
 					</control>
 				</setting>
 			</group>

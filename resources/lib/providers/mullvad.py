@@ -8,12 +8,12 @@ import gzip
 import json
 import os
 import pathlib
-import subprocess
 import sys
 import time
 import urllib.error
 import urllib.request
 from logger import log_message
+from providers.nm_manager import nm_register_profile
 from state_manager import get_file_path
 
 
@@ -377,29 +377,14 @@ class MullvadConfig:
             with file_path.open("w", encoding="utf-8") as target_file:
                 target_file.write("\n".join(dest_lines) + "\n")
 
-            subprocess.run(
-                ["nmcli", "connection", "delete", "id", display_name],
-                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False
-            )
-            import_result = subprocess.run(
-                ["nmcli", "connection", "import", "type", "wireguard", "file", str(file_path)],
-                stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True, check=False
-            )
-            if import_result.returncode != 0:
-                raise RuntimeError(f"nmcli import failed: {import_result.stderr.strip()}")
-            subprocess.run(
-                ["nmcli", "connection", "down", display_name],
-                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False
-            )
-            subprocess.run(
-                ["nmcli", "connection", "modify", display_name,
-                 "ipv4.dns-priority", "0",
-                 "ipv6.dns-priority", "0",
-                 "connection.autoconnect", "no",
-                 "wireguard.ip4-auto-default-route", "true",
-                 "wireguard.peer-routes", "true"],
-                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False
-            )
+            extra_modify_args = [
+                "ipv4.dns-priority", "0",
+                "ipv6.dns-priority", "0",
+                "wireguard.ip4-auto-default-route", "true",
+                "wireguard.peer-routes", "true"
+            ]
+            if nm_register_profile(display_name, file_path, extra_modify_args) is False:
+                raise RuntimeError(f"NM registration failed for {display_name}")
 
             log_message(f"Mullvad Compiler: Profile {display_name} successfully registered in NetworkManager.", 0)
         except Exception as e:

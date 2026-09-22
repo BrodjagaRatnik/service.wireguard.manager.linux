@@ -18,6 +18,7 @@ log_message = __import__('logger').log_message
 get_default_gateway = __import__('network_utils').get_default_gateway
 DHAX_RECOVERY_DELAY = __import__('vpn_config').DHCP_RECOVERY_DELAY
 get_file_path = __import__('state_manager').get_file_path
+read_friendly_name = __import__('vpn_utils').read_friendly_name
 get_dynamic_prefixes = __import__('vpn_utils').get_dynamic_prefixes
 
 try:
@@ -36,7 +37,7 @@ def get_retry_count():
             with open(retry_path, "r") as f:
                 return int(f.read().strip())
         except Exception as e:
-            log_message(f"Reconnect Helper: Failed to read retry count file: {e}", 3)
+            log_message(f"Reconnect Helper: Retry count file unreadable as integer: {e}", 3)
             return 0
     return 0
 
@@ -55,69 +56,124 @@ def increment_retry():
     return count
 
 
-def run_reconnect():
-    lock_path = get_file_path('connector_lock')
-    if lock_path is not None and (os.path.exists(lock_path) is True):
+def _resolve_reconnect_target():
+    target_path = get_file_path('reconnect_target')
+    if target_path is not None and (os.path.exists(target_path) is True):
         try:
-            with open(lock_path, "r") as f:
-                pid = int(f.read().strip())
-            os.kill(pid, 0)
-            log_message("Reconnect Helper: Active connector process running. Exiting.", 1)
-            return
-        except (ValueError, OSError):
+            with open(target_path, "r") as f:
+                target = f.read().strip()
+            if target:
+                return target
+        except Exception as e:
+            log_message(f"Reconnect Helper: Failed to read reconnect target state: {e}", 3)
+    return None
+
+
+def _purge_reconnect_state():
+    for state_key in ('reconnect', 'reconnect_target'):
+        state_path = get_file_path(state_key)
+        if state_path is not None and (os.path.exists(state_path) is True):
             try:
-                os.remove(lock_path)
+                os.remove(state_path)
             except Exception:
                 pass
-    vpn_name = None
-    state_path = get_file_path('active')
-    if state_path is not None and (os.path.exists(state_path) is True):
+
+
+def run_reconnect():
+    helper_lock_path = get_file_path('helper_lock')
+    if helper_lock_path is not None and (os.path.exists(helper_lock_path) is True):
+        lock_live = False
         try:
-            with open(state_path, "r") as f:
-                vpn_name = f.read().strip()
-        except Exception as e:
-            log_message(f"Reconnect Helper: Failed to read vpn active state: {e}", 3)
-    if (not vpn_name or vpn_name.lower() == "true") and HAS_KODI is True:
-        vpn_name = xbmcgui.Window(10000).getProperty('vpn_manual_session')
-    if not vpn_name or vpn_name.lower() == "true":
-        return
+            with open(helper_lock_path, "r") as f:
+                lock_pid = int(f.read().strip())
+            os.kill(lock_pid, 0)
+            lock_live = True
+        except (ValueError, OSError):
+            lock_live = False
+        if lock_live is True:
+            log_message("Reconnect Helper: Another helper instance is active. Exiting.", 1)
+            return
+        try:
+            os.remove(helper_lock_path)
+        except Exception:
+            pass
+    if helper_lock_path is not None:
+        try:
+            with open(helper_lock_path, "w") as f:
+                f.write(str(os.getpid()))
+        except Exception as lock_err:
+            log_message(f"Reconnect Helper: Failed to register helper lock: {lock_err}", 3)
     try:
-        while True:
-            count = get_retry_count()
-            if count >= MAX_RETRIES:
-                log_message("Reconnect Helper: Max retries reached. Standing down.", 2)
-                retry_path = get_file_path('reconnect')
-                if retry_path is not None and (os.path.exists(retry_path) is True):
-                    os.remove(retry_path)
-                break
-            gw_ready = False
-            sleep_time = DHAX_RECOVERY_DELAY / 1000.0
-            for check_idx in range(1, 7):
-                if get_default_gateway():
-                    gw_ready = True
-                    break
-                time.sleep(sleep_time)
-            if not gw_ready:
-                new_count = increment_retry()
-                log_message(f"Reconnect Helper: No gateway ready. Attempt {new_count}/{MAX_RETRIES}", 2)
-                continue
-            log_message(f"Reconnect Helper: Reconnecting to {vpn_name} (Attempt {count + 1}/{MAX_RETRIES})...", 1)
+        lock_path = get_file_path('connector_lock')
+        if lock_path is not None and (os.path.exists(lock_path) is True):
             try:
-                out = subprocess.check_output(["nmcli", "-t", "-f", "NAME", "connection", "show"], text=True)
-                sid = None
-                for line in out.splitlines():
-                    if line.strip().lower() == vpn_name.lower():
-                        sid = line.strip()
+                with open(lock_path, "r") as f:
+                    pid = int(f.read().strip())
+                os.kill(pid, 0)
+                log_message("Reconnect Helper: Active connector process running. Exiting.", 1)
+                return
+            except (ValueError, OSError):
+                try:
+                    os.remove(lock_path)
+                except Exception:
+                    pass
+        vpn_name = _resolve_reconnect_target()
+        if not vpn_name:
+            state_path = get_file_path('active')
+            if state_path is not None and (os.path.exists(state_path) is True):
+                try:
+                    with open(state_path, "r") as f:
+                        vpn_name = f.read().strip()
+                except Exception as e:
+                    log_message(f"Reconnect Helper: Failed to read vpn active state: {e}", 3)
+        if (not vpn_name or vpn_name.lower() == "true") and HAS_KODI is True:
+            vpn_name = xbmcgui.Window(10000).getProperty('vpn_manual_session')
+        if not vpn_name or vpn_name.lower() == "true":
+            return
+        prefixes = get_dynamic_prefixes()
+        try:
+            while True:
+                count = get_retry_count()
+                if count >= MAX_RETRIES:
+                    log_message("Reconnect Helper: Max retries reached. Standing down.", 2)
+                    _purge_reconnect_state()
+                    break
+                gw_ready = False
+                sleep_time = DHAX_RECOVERY_DELAY / 1000.0
+                for check_idx in range(1, 7):
+                    if get_default_gateway():
+                        gw_ready = True
                         break
-                if not sid:
-                    for line in out.splitlines():
-                        if vpn_name.lower() in line.lower():
-                            sid = line.strip()
-                            break
-            except Exception as e:
-                log_message(f"Reconnect Helper: Failed to find NetworkManager profile for {vpn_name}: {e}", 3)
+                    time.sleep(sleep_time)
+                if not gw_ready:
+                    new_count = increment_retry()
+                    log_message(f"Reconnect Helper: No gateway ready. Attempt {new_count}/{MAX_RETRIES}", 2)
+                    continue
+                log_message(f"Reconnect Helper: Reconnecting to {vpn_name} (Attempt {count + 1}/{MAX_RETRIES})...", 1)
                 sid = None
-            if sid:
+                try:
+                    out = subprocess.check_output(["nmcli", "-t", "-f", "NAME", "connection", "show"], text=True)
+                    nm_profiles = [line.strip() for line in out.splitlines() if line.strip()]
+                    for nm_profile in nm_profiles:
+                        if nm_profile.lower() == vpn_name.lower():
+                            sid = nm_profile
+                            log_message(f"Reconnect Helper: Profile resolved via exact NM name match: {sid}", 0)
+                            break
+                    if not sid:
+                        for nm_profile in nm_profiles:
+                            if any(nm_profile.lower().startswith(px.lower()) for px in prefixes):
+                                friendly = read_friendly_name(nm_profile)
+                                if friendly and friendly.lower() == vpn_name.lower():
+                                    sid = nm_profile
+                                    log_message(f"Reconnect Helper: Profile resolved via friendly name match: {sid}", 0)
+                                    break
+                except Exception as e:
+                    log_message(f"Reconnect Helper: Failed to find NetworkManager profile for {vpn_name}: {e}", 3)
+                    sid = None
+                if not sid:
+                    log_message(f"Reconnect Helper: No NetworkManager profile resolved for {vpn_name}.", 2)
+                    increment_retry()
+                    break
                 subprocess.run(
                     ["nmcli", "connection", "down", "id", sid],
                     check=False,
@@ -132,7 +188,6 @@ def run_reconnect():
                 )
                 if res.returncode == 0:
                     verified = False
-                    prefixes = get_dynamic_prefixes()
                     for check in range(20):
                         try:
                             with open("/proc/net/dev", "r") as f:
@@ -150,15 +205,19 @@ def run_reconnect():
                         time.sleep(0.2)
                     if verified is True:
                         log_message("Reconnect Helper: Connection verified... Task complete.", 1)
-                        retry_path = get_file_path('reconnect')
-                        if retry_path is not None and (os.path.exists(retry_path) is True):
-                            os.remove(retry_path)
+                        _purge_reconnect_state()
                         break
-            log_message("Reconnect Helper: NetworkManager reported failure. Retrying...", 2)
-            increment_retry()
-            break
+                log_message("Reconnect Helper: NetworkManager reported failure. Retrying...", 2)
+                increment_retry()
+                break
+        finally:
+            log_message("Reconnect Helper: Task finished.", 0)
     finally:
-        log_message("Reconnect Helper: Task finished.", 0)
+        if helper_lock_path is not None and (os.path.exists(helper_lock_path) is True):
+            try:
+                os.remove(helper_lock_path)
+            except Exception:
+                pass
 
 
 if __name__ == "__main__":

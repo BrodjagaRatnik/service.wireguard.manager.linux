@@ -6,12 +6,12 @@ import os
 import re
 import sys
 import ssl
-import subprocess
 import threading
 import urllib.parse
 import urllib.request
 from logger import log_message
 from providers import pia
+from providers.nm_manager import nm_refresh_profile
 
 try:
     import xbmc
@@ -200,25 +200,12 @@ def setup_pia_handshake(sid, provider_data, addon_obj, has_kodi):
                         xbmc.sleep(500)
 
                 try:
-                    subprocess.run(
-                        ["nmcli", "connection", "delete", "id", profile_id],
-                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False
-                    )
-                    reimport = subprocess.run(
-                        ["nmcli", "connection", "import", "type", "wireguard", "file", config_path],
-                        stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True, check=False
-                    )
-                    if reimport.returncode != 0:
-                        log_message(
-                            f"PIA Utils: Post-handshake nmcli re-import failed for {profile_id}: "
-                            f"{reimport.stderr.strip()}", 3
-                        )
+                    if nm_refresh_profile(profile_id, config_path) is False:
+                        log_message(f"PIA Utils: Post-handshake re-import failed for {profile_id}", 3)
                     else:
-                        log_message(f"PIA Utils: NetworkManager profile refreshed with live handshake data 4 {profile_id}", 1)
-                        subprocess.run(
-                            ["nmcli", "connection", "modify", profile_id,
-                             "connection.autoconnect", "no"],
-                            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False
+                        log_message(
+                            f"PIA Utils: NetworkManager profile refreshed with live handshake "
+                            f"data for {profile_id}", 1
                         )
                 except Exception as nm_err:
                     log_message(f"PIA Utils: Post-handshake re-import exception for {profile_id}: {nm_err}", 3)

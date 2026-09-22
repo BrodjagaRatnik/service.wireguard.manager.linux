@@ -268,7 +268,7 @@ def run_watchdog(stop_check=None):
                 has_manual = manual_path is not None and os.path.exists(manual_path) is True
                 has_intentional = intentional_path is not None and os.path.exists(intentional_path) is True
 
-                if has_manual or has_intentional:
+                if (has_manual or has_intentional):
                     if not shield_logged:
                         log_message("Service: SHIELD ACTIVE - SESSION FOUND. Pausing watchdog.", 0)
                         shield_logged = True

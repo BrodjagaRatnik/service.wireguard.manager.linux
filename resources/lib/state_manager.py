@@ -8,6 +8,7 @@ FILE_MAP = {
     'active': 'vpn_manager_active.txt',
     'manual': 'vpn_manual_active.txt',
     'reconnect': 'vpn_reconnect_count.txt',
+    'reconnect_target': 'vpn_reconnect_target.txt',
     'disconnect': 'vpn_intentional_disconnect.txt',
     'blackout': 'vpn_blackout_active.lock',
     'pia_map': 'pia_name_map.json',
@@ -18,8 +19,6 @@ FILE_MAP = {
     'mullvad_relays_cache': 'mullvad_relays_cache.json',
     'connector_lock': 'vpn_connector_active.lock',
     'notif_lock': 'vpn_notif_sent.lock',
-    'dns_backup': 'vpn_dns_backup.json',
-    'engine': 'vpn_engine_selected.txt',
     'cycle_fail_state': 'vpn_cycle_fail_state.json',
     'last_profile': 'vpn_last_profile.txt'
 }
@@ -42,7 +41,7 @@ def get_file_path(key):
 
 def clear_startup_states():
     ensure_directories()
-    startup_keys = ['active', 'reconnect', 'dns_backup']
+    startup_keys = ['active', 'reconnect', 'reconnect_target']
     for key in startup_keys:
         path = get_file_path(key)
         if path is not None and os.path.exists(path):

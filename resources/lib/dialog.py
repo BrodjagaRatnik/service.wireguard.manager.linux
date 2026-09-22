@@ -40,15 +40,41 @@ def notify_connection_failed(vpn_name):
     _notify_safe(title, msg, xbmcgui.NOTIFICATION_ERROR, 5000)
 
 
+def notify_tunnel_lost_stream(vpn_name):
+    if not HAS_KODI:
+        return
+    title = "[B][COLOR FFFF0000][ TUNNEL LOST ][/COLOR][/B]"
+    msg = (
+        f"[B][COLOR FF32CD32]{vpn_name}[/COLOR][/B]\n"
+        "[B][COLOR FFFFFF00]Automatic recovery in progress...[/COLOR][/B]"
+    )
+    _notify_safe(title, msg, _icon_path("error.png"), 5000)
+
+
+def notify_stream_recovery_failed(vpn_name):
+    if not HAS_KODI:
+        return
+    title = "[B][COLOR FFFF0000][ RECOVERY FAILED ][/COLOR][/B]"
+    msg = (
+        f"[B][COLOR FF32CD32]{vpn_name}[/COLOR][/B]\n"
+        "[B][COLOR FFFFFF00]Background recovery could not restore the tunnel.[/COLOR][/B]\n"
+        "Manual reconnect may be required."
+    )
+    _notify_safe(title, msg, _icon_path("error.png"), 6000)
+
+
 def notify_connected(vpn_name, ip, country, context="normal"):
     if not HAS_KODI:
         return
 
-    msg_body = (
-        f"[B][COLOR FF32CD32]{vpn_name}[/COLOR][/B]\n"
-        f"[B]IP [COLOR FFFFFF00]{ip}[/COLOR] "
-        f"[COLOR FFFF8C00]({country})[/COLOR][/B]"
-    )
+    if ip and ip != "Unknown":
+        msg_body = (
+            f"[B][COLOR FF32CD32]{vpn_name}[/COLOR][/B]\n"
+            f"[B]IP [COLOR FFFFFF00]{ip}[/COLOR] "
+            f"[COLOR FFFF8C00]({country})[/COLOR][/B]"
+        )
+    else:
+        msg_body = f"[B][COLOR FF32CD32]{vpn_name}[/COLOR][/B]"
 
     titles = {
         "tunnel_checker": "[B][COLOR FF00FFFF][ SYSTEM RESTART ][/COLOR][/B]",
@@ -239,18 +265,6 @@ def notify_setup_success():
     _notify_safe(title, msg, _icon_path("icon.png"), 6000)
 
 
-def notify_orphaned_tunnel(iface_name):
-    if not HAS_KODI:
-        return
-    title = "[B][COLOR FFFFFF00][ ORPHANED TUNNEL ][/COLOR][/B]"
-    msg = (
-        f"[B][COLOR FF32CD32]{iface_name}[/COLOR][/B]\n"
-        "[B]Active tunnel without session state. "
-        "Previous Kodi session may have crashed.[/B]"
-    )
-    _notify_safe(title, msg, xbmcgui.NOTIFICATION_WARNING, 6000)
-
-
 def notify_session_available(friendly_name):
     if not HAS_KODI:
         return
@@ -275,7 +289,8 @@ def notify_startup_disconnected(friendly_name):
 
 _FAILURE_DIALOG_FLAGS = {
     "reconnect_failed": "vpn_reconnect_fail_notified",
-    "breaker_open": "vpn_breaker_open_notified"
+    "breaker_open": "vpn_breaker_open_notified",
+    "stream_recovery_failed": "vpn_stream_recovery_notified"
 }
 
 

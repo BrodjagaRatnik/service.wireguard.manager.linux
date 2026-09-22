@@ -1,7 +1,7 @@
 """ ./resources/lib/providers/custom.py """
 import os
-import subprocess
 from logger import log_message
+from providers.nm_manager import nm_register_profile
 
 LAST_ERROR = ""
 
@@ -39,34 +39,16 @@ def update(source_path, target_config_dir):
             target_file.write(output_content)
         os.chmod(file_path, 0o600)
 
-        subprocess.run(
-            ["nmcli", "connection", "delete", "id", b_name],
-            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False
-        )
-
-        import_res = subprocess.run(
-            ["nmcli", "connection", "import", "type", "wireguard", "file", str(file_path)],
-            stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True, check=False
-        )
-
-        if import_res.returncode != 0:
-            LAST_ERROR = import_res.stderr.strip() or "nmcli import failed with no error output."
-            log_message(f"Custom Compiler: nmcli import failed: {LAST_ERROR}", 3)
+        extra_modify_args = [
+            "ipv4.dns-priority", "100",
+            "ipv6.dns-priority", "100",
+            "wireguard.ip4-auto-default-route", "true",
+            "wireguard.peer-routes", "true"
+        ]
+        if nm_register_profile(b_name, file_path, extra_modify_args) is False:
+            LAST_ERROR = "NetworkManager profile registration failed (see log for details)."
+            log_message(f"Custom Compiler: {LAST_ERROR}", 3)
             return False
-
-        subprocess.run(
-            ["nmcli", "connection", "down", b_name],
-            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False
-        )
-        subprocess.run(
-            ["nmcli", "connection", "modify", b_name,
-             "ipv4.dns-priority", "100",
-             "ipv6.dns-priority", "100",
-             "connection.autoconnect", "no",
-             "wireguard.ip4-auto-default-route", "true",
-             "wireguard.peer-routes", "true"],
-            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False
-        )
 
         log_message(f"Custom Compiler: Profile {pretty_name} ({b_name}) registered successfully.", 1)
         return True

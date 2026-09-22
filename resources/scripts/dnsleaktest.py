@@ -166,9 +166,9 @@ def main():
                 msg += f" And {len(dns_servers) - 3} more...\n"
 
         if "is leaking" in conclusion.lower():
-            msg += f"[COLOR FFFF0000]Conclusion: {conclusion}[/COLOR]"
+            msg += f"[COLOR FFFF0000]\nConclusion: {conclusion}[/COLOR]"
         else:
-            msg += f"[COLOR FF00FF00]Conclusion: {conclusion}[/COLOR]"
+            msg += f"[COLOR FF00FF00]\nConclusion: {conclusion}[/COLOR]"
 
         xbmcgui.Dialog().ok(title, msg)
 

@@ -16,6 +16,7 @@ import urllib.request
 from logger import log_message
 from providers import routing
 from providers import pia_config
+from providers.nm_manager import nm_register_profile
 
 SERVER_LIST_URL = "https://serverlist.piaservers.net/vpninfo/servers/v6"
 
@@ -233,28 +234,8 @@ def update(user, password, country_ids, config_dir):
                 progress.update(min(base_pct + 85, 95), "Registering profile...", base_name)
 
             try:
-                subprocess.run(
-                    ["nmcli", "connection", "delete", "id", base_name],
-                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False
-                )
-                import_result = subprocess.run(
-                    ["nmcli", "connection", "import", "type", "wireguard", "file", file_path],
-                    stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True, check=False
-                )
-                if import_result.returncode != 0:
-                    log_message(
-                        f"PIA Updater: nmcli import failed for {base_name}: {import_result.stderr.strip()}", 2
-                    )
-                else:
-                    subprocess.run(
-                        ["nmcli", "connection", "down", base_name],
-                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False
-                    )
-                    subprocess.run(
-                        ["nmcli", "connection", "modify", base_name,
-                         "connection.autoconnect", "no"],
-                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False
-                    )
+                if nm_register_profile(base_name, file_path) is False:
+                    log_message(f"PIA Updater: NetworkManager profile registration failed for {base_name}", 2)
             except Exception as nm_err:
                 log_message(f"PIA Updater: NetworkManager profile registration failed for {base_name}: {nm_err}", 2)
 
@@ -285,7 +266,7 @@ def update(user, password, country_ids, config_dir):
             log_message("PIA Updater: Active interface detected. Scheduling deferred reconnect.", 1)
             boot_target = get_active_vpn()
             if boot_target:
-                write_state('reconnect', str(boot_target))
+                write_state('reconnect_target', str(boot_target))
 
         if progress:
             progress.close()

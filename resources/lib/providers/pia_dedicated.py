@@ -8,11 +8,13 @@ import urllib.request
 import urllib.parse
 import urllib.error
 from logger import log_message
+from state_manager import CONFIG_DIR
+from providers.nm_manager import nm_register_profile
 
 
 def execute_basic_auth_handshake(dip_token, server_ip, hostname, config_dir=None):
     if config_dir is None:
-        config_dir = os.path.expanduser("~/.config/wireguard/")
+        config_dir = CONFIG_DIR
     try:
         pk = subprocess.check_output(["wg", "genkey"]).decode().strip()
         pub = subprocess.check_output(["wg", "pubkey"], input=pk.encode()).decode().strip()
@@ -35,7 +37,7 @@ def execute_basic_auth_handshake(dip_token, server_ip, hostname, config_dir=None
 
 def execute_url_param_handshake(pia_token, server_ip, hostname, config_dir=None):
     if config_dir is None:
-        config_dir = os.path.expanduser("~/.config/wireguard/")
+        config_dir = CONFIG_DIR
     try:
         pk = subprocess.check_output(["wg", "genkey"]).decode().strip()
         pub = subprocess.check_output(["wg", "pubkey"], input=pk.encode()).decode().strip()
@@ -118,23 +120,9 @@ def _process_api_handshake(handshake_url, request_headers, pk, server_ip, hostna
             storage_file.write(blueprint_structure)
         os.chmod(destination_path, 0o600)
 
-        subprocess.run(
-            ["nmcli", "connection", "delete", "id", display_name],
-            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False
-        )
-        subprocess.run(
-            ["nmcli", "connection", "import", "type", "wireguard", "file", destination_path],
-            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False
-        )
-        subprocess.run(
-            ["nmcli", "connection", "down", display_name],
-            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False
-        )
-        subprocess.run(
-            ["nmcli", "connection", "modify", display_name,
-             "connection.autoconnect", "no"],
-            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False
-        )
+        if nm_register_profile(display_name, destination_path) is False:
+            log_message("PIA Dedicated: NetworkManager profile deployment failed for " + display_name, 3)
+            return False
 
         log_message("PIA Dedicated: Runtime configuration deployment script compiled successfully to storage", 1)
         return True

@@ -3,6 +3,7 @@ import kodi_env
 import os
 import socket
 import subprocess
+import sys
 import time
 import traceback
 
@@ -30,8 +31,9 @@ from state_manager import get_active_vpn, write_state, get_file_path
 from vpn_config import SANITY_POLL_INTERVAL, SANITY_SETTLE_DELAY
 from resources.scripts.killswitch import ZeroHardcodeKillSwitch
 from dialog import (
+    notify_tunnel_lost_stream,
+    notify_stream_recovery_failed,
     notify_tunnel_restored,
-    notify_orphaned_tunnel,
     ask_reconnect_retry,
     notify_breaker_open,
     failure_dialog_allowed,
@@ -39,17 +41,19 @@ from dialog import (
     clear_failure_dialogs
 )
 
+HELPER_SCRIPT = os.path.join(kodi_env.ADDON_DIR, "resources", "lib", "reconnect_helper.py")
+
 
 def _breaker_open_for(target_name):
     try:
         from vpn_connector import _load_cycle_state, CYCLE_FAIL_LIMIT
-        log_message(f"[BREAKER] Loading cycle state, limit={CYCLE_FAIL_LIMIT}", 1)
+        log_message(f"[BREAKER] Loading cycle state, limit={CYCLE_FAIL_LIMIT}", 0)
         state = _load_cycle_state()
         log_message(
             "[BREAKER] State snapshot - count={}, name={}, target={}".format(
                 state.get("count"), state.get("name"), target_name
             ),
-            1
+            0
         )
         if state["count"] < CYCLE_FAIL_LIMIT:
             log_message(
@@ -88,6 +92,64 @@ def _session_requires_recovery(session_target):
     conn_lock_path = get_file_path("connector_lock")
     if conn_lock_path is not None and os.path.exists(conn_lock_path) is True:
         return False
+    return True
+
+
+def _stream_playback_active():
+    if HAS_KODI is not True:
+        return False
+    try:
+        if xbmc.Player().isPlaying():
+            playing_file = xbmc.Player().getPlayingFile()
+            stream_protocols = ["http://", "https://", "rtmp://", "pvr://"]
+            return any(playing_file.startswith(p) for p in stream_protocols)
+    except Exception:
+        return False
+    return False
+
+
+def _dispatch_stream_recovery(boot_target):
+    conn_lock_path = get_file_path("connector_lock")
+    if conn_lock_path is not None and os.path.exists(conn_lock_path) is True:
+        log_message("Tunnel Check: Stream active but connector lock engaged. Postponing helper dispatch.", 0)
+        return True
+
+    helper_state_path = get_file_path("reconnect")
+    if helper_state_path is not None and os.path.exists(helper_state_path) is True:
+        from reconnect_helper import get_retry_count, MAX_RETRIES
+        if get_retry_count() >= MAX_RETRIES:
+            if failure_dialog_allowed("stream_recovery_failed"):
+                notify_stream_recovery_failed(boot_target)
+                mark_failure_dialog_shown("stream_recovery_failed")
+            log_message(
+                "Tunnel Check: Background helper retry budget exhausted. "
+                "Purging state and standing down until next incident.",
+                2
+            )
+            if helper_state_path is not None:
+                try:
+                    os.remove(helper_state_path)
+                except Exception:
+                    pass
+            target_purge = get_file_path("reconnect_target")
+            if target_purge is not None and os.path.exists(target_purge) is True:
+                try:
+                    os.remove(target_purge)
+                except Exception:
+                    pass
+            return True
+        log_message("Tunnel Check: Helper retry budget remaining. Dispatching next attempt.", 0)
+
+    log_message("Tunnel Check: Stream active and tunnel dead. Dispatching background reconnect helper.", 2)
+    notify_tunnel_lost_stream(boot_target)
+    try:
+        subprocess.Popen(
+            [sys.executable, HELPER_SCRIPT],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL
+        )
+    except Exception as dispatch_err:
+        log_message(f"Tunnel Check: Background helper dispatch failed: {dispatch_err}", 3)
     return True
 
 
@@ -161,16 +223,6 @@ def run_tunnel_sanity_check(run_update_if_clear=False):
     try:
         addon_obj = kodi_env.get_addon_instance()
         if not addon_obj:
-            return
-
-        is_playing_stream = False
-        if HAS_KODI and xbmc.Player().isPlaying():
-            playing_file = xbmc.Player().getPlayingFile()
-            stream_protocols = ["http://", "https://", "rtmp://", "pvr://"]
-            is_playing_stream = any(playing_file.startswith(p) for p in stream_protocols)
-
-        if is_playing_stream:
-            log_message("Tunnel Check: Active stream detected. Postponing health check.", 0)
             return
 
         prefixes = get_dynamic_prefixes()
@@ -262,18 +314,17 @@ def run_tunnel_sanity_check(run_update_if_clear=False):
                 )
                 tunnel_is_broken = True
 
-        if not tunnel_is_broken:
-            log_message("Tunnel Check: Link health verification successful. Tunnel is clear.", 0)
-            if run_update_if_clear is True:
-                log_message(
-                    "Tunnel Check: Tunnel healthy - deferred update parked until "
-                    "next broken-tunnel recovery cycle.",
-                    0
-                )
+        if tunnel_is_broken is not True:
+            log_message("Tunnel Check: Link health verification successful.", 0)
+            return
+
+        dispatch_target = get_active_vpn()
+        if _session_requires_recovery(dispatch_target) and _stream_playback_active():
+            _dispatch_stream_recovery(dispatch_target)
             return
 
         boot_target = get_active_vpn()
-        log_message(f"[RECOVERY] Boot target from session state: {boot_target}", 1)
+        log_message(f"[RECOVERY] Boot target from session state: {boot_target}", 0)
 
         if not boot_target:
             log_message(
@@ -281,8 +332,6 @@ def run_tunnel_sanity_check(run_update_if_clear=False):
                 "Leaving interface untouched.",
                 2
             )
-            if not tunnel_missing_recovery:
-                notify_orphaned_tunnel(current_default_iface)
             return
 
         if _breaker_open_for(boot_target):
@@ -416,7 +465,7 @@ def run_tunnel_sanity_check(run_update_if_clear=False):
             return
 
         log_message("Tunnel Check: Registering fallback session state protection.", 0)
-        write_state('manual', 'true')
+        write_state('manual', str(boot_target))
         if HAS_GUI:
             xbmcgui.Window(10000).setProperty('vpn_manual_session', 'true')
 

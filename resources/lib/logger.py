@@ -5,12 +5,18 @@ import os
 import sys
 import time
 import xml.etree.ElementTree as ET
+import subprocess
 
 try:
     import xbmc
     HAS_KODI_LOGGING = True
 except ImportError:
     HAS_KODI_LOGGING = False
+
+_ROTATION_CHECK_INTERVAL_SEC = 60.0
+_last_rotation_check = 0.0
+_LAST_RESORT_MAX_BYTES = 10485760
+_LAST_RESORT_BACKUP_COUNT = 2
 
 
 def get_addon_metadata():
@@ -41,6 +47,136 @@ def _standalone_log_path():
     return os.path.join(data_dir, "standalone_wm.log")
 
 
+def _resolve_rotation_settings():
+    enabled = True
+    max_bytes = _LAST_RESORT_MAX_BYTES
+    backup_count = _LAST_RESORT_BACKUP_COUNT
+
+    env_enabled = os.environ.get("WM_LOG_ROTATION_ENABLED")
+    if env_enabled is not None:
+        enabled = env_enabled.strip().lower() in ("1", "true", "yes", "on")
+    env_max = os.environ.get("WM_LOG_ROTATION_MAX_MB")
+    if env_max:
+        parsed_max = int(float(env_max) * 1048576)
+        if parsed_max > 0:
+            max_bytes = parsed_max
+    env_count = os.environ.get("WM_LOG_ROTATION_BACKUPS")
+    if env_count:
+        parsed_count = int(env_count)
+        if parsed_count > 0:
+            backup_count = parsed_count
+
+    if kodi_env.HAS_KODI_IMPORTS:
+        addon_obj = kodi_env.get_addon_instance()
+        if addon_obj:
+            try:
+                enabled = addon_obj.getSettingBool("log_rotation_enabled")
+            except Exception:
+                pass
+            try:
+                setting_max = int(addon_obj.getSettingInt("log_rotation_max_mb"))
+                if setting_max > 0:
+                    max_bytes = setting_max * 1048576
+            except Exception:
+                pass
+            try:
+                setting_count = int(addon_obj.getSettingInt("log_rotation_backup_count"))
+                if setting_count > 0:
+                    backup_count = setting_count
+            except Exception:
+                pass
+
+    return enabled, max_bytes, backup_count
+
+
+def rotate_standalone_log(force=False):
+    global _last_rotation_check
+
+    now = time.monotonic()
+    if force is False and (now - _last_rotation_check) < _ROTATION_CHECK_INTERVAL_SEC:
+        return False
+    _last_rotation_check = now
+
+    enabled, max_bytes, backup_count = _resolve_rotation_settings()
+    if enabled is False:
+        return False
+
+    log_path = _standalone_log_path()
+    try:
+        if os.path.exists(log_path) is False:
+            return False
+        if force is False and os.path.getsize(log_path) < max_bytes:
+            return False
+
+        log_dir = os.path.dirname(log_path)
+        log_name = os.path.basename(log_path)
+
+        legacy_old = os.path.join(log_dir, f"{log_name}.old")
+        if os.path.exists(legacy_old):
+            os.remove(legacy_old)
+
+        stamp = time.strftime("%Y%m%d-%H%M%S")
+        rotated_path = os.path.join(log_dir, f"{log_name}.{stamp}")
+        if os.path.exists(rotated_path):
+            rotated_path = os.path.join(log_dir, f"{log_name}.{stamp}-{os.getpid()}")
+        os.rename(log_path, rotated_path)
+
+        prefix = f"{log_name}."
+        rotations = []
+        for entry in os.listdir(log_dir):
+            full_path = os.path.join(log_dir, entry)
+            if entry.startswith(prefix) and os.path.isfile(full_path):
+                rotations.append(full_path)
+        rotations.sort()
+        surplus = max(0, len(rotations) - backup_count)
+        for stale_path in rotations[:surplus]:
+            try:
+                os.remove(stale_path)
+            except Exception:
+                pass
+        return True
+    except Exception:
+        return False
+
+
+def run_logged_command(command_list, timeout=None, log_prefix=None):
+    prefix = log_prefix if log_prefix else " ".join(command_list[:2])
+    try:
+        process = subprocess.Popen(
+            command_list,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True
+        )
+    except Exception as spawn_err:
+        log_message(f"{prefix}: command spawn failed: {spawn_err}", 2)
+        return -1
+
+    try:
+        for raw_line in iter(process.stdout.readline, ""):
+            stripped = raw_line.strip()
+            if stripped:
+                log_message(f"{prefix}: {stripped}", 0)
+    except Exception as read_err:
+        log_message(f"{prefix}: output capture failed: {read_err}", 2)
+    finally:
+        try:
+            process.stdout.close()
+        except Exception:
+            pass
+
+    try:
+        return_code = process.wait(timeout=timeout)
+    except subprocess.TimeoutExpired:
+        process.kill()
+        return_code = process.wait()
+        log_message(f"{prefix}: command timed out", 2)
+    except Exception as wait_err:
+        log_message(f"{prefix}: wait failure: {wait_err}", 2)
+        return_code = -1
+    return return_code
+
+
 def log_message(msg, level=1):
     if level is None:
         level = 1
@@ -61,6 +197,7 @@ def log_message(msg, level=1):
         except Exception:
             pass
 
+        rotate_standalone_log(False)
         is_debug_active = False
         script_path = os.path.dirname(__file__)
         gui_xml = os.path.normpath(

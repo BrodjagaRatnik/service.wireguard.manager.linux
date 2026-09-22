@@ -328,6 +328,31 @@ msgctxt "#32080"
 msgid "When enabled, the add-on automatically reconnects the last used VPN profile when Kodi starts. This overrides Disconnect on start. If the profile fails repeatedly, the cycle-fail breaker stops further retries until a manual reconnect or profile switch."
 msgstr "When enabled, the add-on automatically reconnects the last used VPN profile when Kodi starts. This overrides Disconnect on start. If the profile fails repeatedly, the cycle-fail breaker stops further retries until a manual reconnect or profile switch."
 
+msgctxt "#32081"
+msgid "Rotate standalone log when size limit reached"
+msgstr "Rotate standalone log when size limit reached"
+
+msgctxt "#32082"
+msgid "Standalone log size limit (MB)"
+msgstr "Standalone log size limit (MB)"
+
+msgctxt "#32083"
+msgid "Rotated logs to retain"
+msgstr "Rotated logs to retain"
+
+msgctxt "#32084"
+msgid "Logging of helper-logs"
+msgstr "Logging of helper-logs"
+
+msgctxt "#32085"
+msgid "Restore previous VPN session on startup."
+msgstr "Restore previous VPN session on startup."
+
+msgctxt "#32086"
+msgid "Restore previous VPN session on startup. On: leftover tunnel is kept, or - if none - the last used profile is reconnected automatically. Off (default): any leftover tunnel is disconnected for a clean, direct connection."
+msgstr "Restore previous VPN session on startup. On: leftover tunnel is kept, or - if none - the last used profile is reconnected automatically. Off (default): any leftover tunnel is disconnected for a clean, direct connection."
+
+
 
 msgctxt "#32992"
 msgid "Independent project, not affiliated with NordVPN. Use at your own risk, read Terms of Service!"

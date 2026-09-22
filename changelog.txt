@@ -1,6 +1,39 @@
 CHANGELOG
 =========
 
+v1.0.6 (2026-09-22)
+
+Fixed NM profile auto-activation during import:
+- NM activated new profiles before the add-on's suppression arrived.
+  Profiles are now deactivated right after suppression. Zero active
+  tunnels verified, clean state.
+
+Resolved DNS leak: provider DNS from phantom tunnels eliminated
+by the import fix.
+
+Rewrote settings-change update pipeline (service_updater.py):
+- Snapshot-difference gate, watchlist from provider map.
+- Prevents PIA pia_pass re-encryption loop. Verified: one run on real
+  mutation only.
+
+Added stream-aware tunnel recovery (tunnel_checker.py):
+- Tunnel loss during playback dispatches background reconnect helper;
+  manual sessions no longer stall.
+
+Hardened reconnect helper (reconnect_helper.py):
+- Profiles resolved via exact NM name or friendly-name lookup; returns
+  to intended server.
+- PID instance lock: one helper regardless of dispatcher. Stress-
+  verified: single-attempt recovery, no fighting connections.
+
+Made country removal a real teardown (country_selector.py):
+- Removes NM profiles and configs, clears map slots, tears down active
+  tunnel if needed; removed countries no longer resurrect.
+
+Fixed nm_register_profile signature mismatch.
+
+Removed obsolete force_reinstall setting.
+
 v1.0.5 (2026-09-18)
 
 - Changed: Watchdog migrated from systemd user-unit to integrated Kodi service thread

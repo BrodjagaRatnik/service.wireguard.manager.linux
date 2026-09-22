@@ -2,6 +2,7 @@
 import os
 import sys
 import time
+import subprocess
 
 try:
     import kodi_env
@@ -14,6 +15,7 @@ from providers.nord_utils import fetch_nord_url
 from providers.pia_utils import fetch_pia_url
 from providers.mullvad import MullvadApi
 from vpn_config import PROVIDER_MAP
+from state_manager import CONFIG_DIR
 import dialog
 
 try:
@@ -32,6 +34,217 @@ def inject_lib_path():
     lib_path = os.path.join(addon_path, "resources", "lib")
     if lib_path not in sys.path:
         sys.path.insert(0, lib_path)
+
+
+def _resolve_removed_profiles(removed_ids, data, id_to_name, config_dir):
+    removed_profiles = []
+    try:
+        conf_files = [
+            f for f in os.listdir(config_dir)
+            if f.endswith((".conf", ".config")) and os.path.isfile(os.path.join(config_dir, f))
+        ]
+    except Exception:
+        return removed_profiles
+    country_terms = []
+    for rid in removed_ids:
+        name = id_to_name.get(rid, rid)
+        parts = name.split()
+        if len(parts) >= 2:
+            country_terms.append(parts[0].lower())
+        else:
+            country_terms.append(name.lower().replace(" ", "_"))
+    for conf_file in conf_files:
+        stem = os.path.splitext(conf_file)[0]
+        try:
+            from vpn_utils import read_friendly_name
+            friendly = read_friendly_name(stem)
+            if friendly:
+                for term in country_terms:
+                    if term in friendly.lower():
+                        removed_profiles.append({
+                            "nm_profile": stem,
+                            "conf_file": os.path.join(config_dir, conf_file)
+                        })
+                        break
+        except Exception:
+            for term in country_terms:
+                if term in stem.lower():
+                    removed_profiles.append({
+                        "nm_profile": stem,
+                        "conf_file": os.path.join(config_dir, conf_file)
+                    })
+                    break
+    return removed_profiles
+
+
+def _kill_active_helper():
+    try:
+        helper_proc = subprocess.Popen(
+            ["pgrep", "-f", "reconnect_helper.py"],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            text=True
+        )
+        out, _ = helper_proc.communicate()
+        if helper_proc.returncode == 0 and out.strip():
+            pids = out.strip().splitlines()
+            for pid in pids:
+                try:
+                    proc = subprocess.Popen(
+                        ["kill", "-9", pid],
+                        stdout=subprocess.DEVNULL,
+                        stderr=subprocess.DEVNULL
+                    )
+                    proc.wait()
+                except Exception:
+                    pass
+            log_message("Country Selector: Terminated active reconnect helper instance(s).", 1)
+    except Exception:
+        pass
+
+
+def _disconnect_active_tunnel_if_in_removed(provider, removed_ids, removed_profiles, id_to_name, config_dir):
+    active_vpn_name = None
+    try:
+        from state_manager import get_active_vpn, set_active_vpn, get_file_path
+        from vpn_ops import disconnect_vpn
+        active_vpn_name = get_active_vpn()
+        if active_vpn_name:
+            country_in_removed = False
+            if provider == 0:
+                for profile_info in removed_profiles:
+                    try:
+                        from vpn_utils import read_friendly_name
+                        friendly = read_friendly_name(profile_info["nm_profile"])
+                        if friendly and active_vpn_name.lower() == friendly.lower():
+                            country_in_removed = True
+                            break
+                    except Exception:
+                        if active_vpn_name.lower() in profile_info["nm_profile"].lower():
+                            country_in_removed = True
+                            break
+            elif provider == 1:
+                for profile_info in removed_profiles:
+                    if any(pid.lower() in profile_info["nm_profile"].lower() for pid in removed_ids):
+                        country_in_removed = True
+                        break
+            elif provider == 2:
+                for profile_info in removed_profiles:
+                    if any(pid.lower() in profile_info["nm_profile"].lower() for pid in removed_ids):
+                        country_in_removed = True
+                        break
+            if country_in_removed:
+                log_message("Country Selector: Active VPN belongs to removed country. Triggering teardown.", 1)
+                set_active_vpn(None)
+                disconnect_vpn(silent=True, flush_dns=True)
+                prop_path = get_file_path("manual")
+                if prop_path is not None and os.path.exists(prop_path):
+                    try:
+                        os.remove(prop_path)
+                    except Exception:
+                        pass
+                try:
+                    xbmcgui.Window(10000).setProperty("vpn_manual_session", "")
+                except Exception:
+                    pass
+                return True
+    except Exception as e:
+        log_message(f"Country Selector: Teardown evaluation fault: {e}", 2)
+    return False
+
+
+def _purge_nm_profiles_and_conf(removed_profiles):
+    try:
+        from providers.nm_manager import nm_delete_profile
+        for profile_info in removed_profiles:
+            nm_profile = profile_info["nm_profile"]
+            conf_file = profile_info["conf_file"]
+            nm_rc = nm_delete_profile(nm_profile)
+            if nm_rc == 0:
+                log_message(f"Country Selector: NM profile [{nm_profile}] deleted successfully.", 1)
+            elif nm_rc == 10 or nm_rc == 6:
+                log_message(f"Country Selector: NM profile [{nm_profile}] not found (rc={nm_rc}), skipping.", 0)
+            else:
+                log_message(f"Country Selector: NM profile [{nm_profile}] delete returned rc={nm_rc}.", 2)
+            if conf_file and os.path.exists(conf_file):
+                try:
+                    os.remove(conf_file)
+                    log_message(f"Country Selector: Config file [{conf_file}] removed.", 1)
+                except Exception as conf_err:
+                    log_message(f"Country Selector: Config removal failed for [{conf_file}]: {conf_err}", 2)
+    except Exception as purge_err:
+        log_message(f"Country Selector: Purge exception: {purge_err}", 2)
+
+
+def _purge_reconnect_state():
+    try:
+        from state_manager import get_file_path
+        for state_key in ("reconnect", "reconnect_target"):
+            state_path = get_file_path(state_key)
+            if state_path is not None and os.path.exists(state_path):
+                try:
+                    os.remove(state_path)
+                except Exception:
+                    pass
+    except Exception:
+        pass
+
+
+def _clear_map_slots_for_removed_countries(removed_ids, removed_profiles, id_to_name):
+    try:
+        addon_obj = kodi_env.get_addon_instance()
+        if not addon_obj:
+            return
+        country_terms = []
+        for rid in removed_ids:
+            name = id_to_name.get(rid, rid)
+            parts = name.split()
+            if len(parts) >= 2:
+                country_terms.append(parts[0].lower())
+            else:
+                country_terms.append(name.lower().replace(" ", "_"))
+        cleared_count = 0
+        for i in range(1, 8):
+            saved_vpn = addon_obj.getSetting(f"vpn_{i}_name")
+            if saved_vpn:
+                vpn_needs_clear = False
+                for profile_info in removed_profiles:
+                    nm_profile = profile_info["nm_profile"]
+                    saved_is_this_profile = False
+                    if saved_vpn.lower() == nm_profile.lower():
+                        saved_is_this_profile = True
+                    else:
+                        try:
+                            from vpn_utils import read_friendly_name
+                            saved_friendly = read_friendly_name(saved_vpn)
+                            nm_friendly = read_friendly_name(nm_profile)
+                            if saved_friendly and nm_friendly:
+                                if saved_friendly.lower() == nm_friendly.lower():
+                                    saved_is_this_profile = True
+                        except Exception:
+                            pass
+                    if saved_is_this_profile:
+                        vpn_needs_clear = True
+                        break
+                if not vpn_needs_clear and country_terms:
+                    try:
+                        from vpn_utils import read_friendly_name
+                        saved_friendly = read_friendly_name(saved_vpn)
+                        if saved_friendly:
+                            for term in country_terms:
+                                if term in saved_friendly.lower():
+                                    vpn_needs_clear = True
+                                    break
+                    except Exception:
+                        pass
+                if vpn_needs_clear:
+                    addon_obj.setSetting(f"vpn_{i}_name", "")
+                    addon_obj.setSetting(f"map_{i}_addon", "")
+                    cleared_count += 1
+        if cleared_count > 0:
+            log_message(f"Country Selector: Cleared {cleared_count} map slot(s) targeting removed country.", 1)
+    except Exception as e:
+        log_message(f"Country Selector: Slot clearing exception: {e}", 2)
 
 
 def run():
@@ -175,25 +388,95 @@ def run():
             f"Select {p_data['name']} Regions", names, preselect=preselect
         )
 
-        if selected is not None:
-            t_start = time.perf_counter()
-            selected_ids = [ids[i] for i in selected]
-            id_string = ",".join(selected_ids)
-            log_message(f"Country Selector: Selection index tracking map register = {selected}", 0)
-            log_message(f"Country Selector: Assembled text configuration entry block = '{id_string}'", 0)
-            addon_obj.setSetting(setting_id, id_string)
-            log_message(f"Country Selector: Dynamic database updated with new countries list = {selected_ids}", 1)
+        if selected is None:
+            log_message("Country Selector: User interaction loop aborted by closing the interface.", 0)
+            return
 
+        t_start = time.perf_counter()
+        id_to_name = dict(zip(ids, names))
+        selected_ids = [ids[i] for i in selected]
+        selection_set = {str(sid).strip().lower() for sid in selected_ids}
+        baseline_set = set(cleaned_saved_ids)
+        added_ids = sorted(selection_set - baseline_set)
+        removed_ids = sorted(baseline_set - selection_set)
+
+        log_message(f"Country Selector: Selection index tracking map register = {selected}", 0)
+        log_message(f"Country Selector: Pre-dialog baseline ID set = {sorted(baseline_set)}", 0)
+        log_message(f"Country Selector: Post-dialog selection ID set = {sorted(selection_set)}", 0)
+        log_message(f"Country Selector: Dirty-diff added IDs = {added_ids}", 0)
+        log_message(f"Country Selector: Dirty-diff removed IDs = {removed_ids}", 0)
+
+        if not added_ids and not removed_ids:
+            log_message(
+                "Country Selector: Selection identical to stored baseline. "
+                "No write performed, update pipeline intentionally not triggered.", 0
+            )
+            return
+
+        added_names = [id_to_name.get(a, a) for a in added_ids]
+        removed_names = [id_to_name.get(r, r) for r in removed_ids]
+        added_display = ", ".join(added_names) if added_names else "none"
+        removed_display = ", ".join(removed_names) if removed_names else "none"
+        confirm_body = (
+            f"Save this country selection?\n\n"
+            f"Added: {added_display}\n"
+            f"Removed: {removed_display}"
+        )
+        confirmed = xbmcgui.Dialog().yesno(f"{p_data['name']} Regions", confirm_body)
+
+        if not confirmed:
+            log_message(
+                "Country Selector: Dirty selection rejected by user confirmation. "
+                "Stored setting left untouched.", 1
+            )
+            return
+
+        id_string = ",".join(selected_ids)
+        log_message(f"Country Selector: Assembled text configuration entry block = '{id_string}'", 0)
+        addon_obj.setSetting(setting_id, id_string)
+        log_message(f"Country Selector: Dynamic database updated with new countries list = {selected_ids}", 1)
+
+        if removed_ids:
+            config_dir = CONFIG_DIR
+            log_message(f"Country Selector: Resolving removed IDs to profiles in {config_dir}", 0)
+            removed_profiles = _resolve_removed_profiles(removed_ids, data, id_to_name, config_dir)
+            log_message(f"Country Selector: Resolved {len(removed_profiles)} profile(s) for removal.", 1)
+
+            if removed_profiles:
+                log_message("Country Selector: Killing active helper instances before teardown.", 1)
+                _kill_active_helper()
+
+                teardown_triggered = _disconnect_active_tunnel_if_in_removed(
+                    provider, removed_ids, removed_profiles, id_to_name, config_dir
+                )
+                if teardown_triggered:
+                    log_message("Country Selector: Active tunnel teardown completed.", 1)
+                else:
+                    log_message("Country Selector: Active tunnel not in removed set; no teardown needed.", 0)
+
+                log_message("Country Selector: Purging NetworkManager profiles and config files.", 1)
+                _purge_nm_profiles_and_conf(removed_profiles)
+
+                log_message("Country Selector: Purging stale reconnect states.", 1)
+                _purge_reconnect_state()
+
+                log_message("Country Selector: Clearing map slots targeting removed country.", 1)
+                _clear_map_slots_for_removed_countries(removed_ids, removed_profiles, id_to_name)
+
+        if added_ids:
             dialog.notify_action_required(
                 "Selection cached. You [B]MUST[/B] press [B]'OK'[/B] in the "
                 "main settings menu to apply changes!"
             )
-
-            t_elapsed = (time.perf_counter() - t_start) * 1000.0
-            log_msg = f"Country Selector: Country selection took {t_elapsed:.2f}ms"
-            log_message(log_msg, 0)
         else:
-            log_message("Country Selector: User interaction loop aborted by closing the interface.", 0)
+            dialog.notify_action_required(
+                "Removals applied to NetworkManager. Press [B]'OK'[/B] in the "
+                "main settings menu to save settings permanently!"
+            )
+
+        t_elapsed = (time.perf_counter() - t_start) * 1000.0
+        log_msg = f"Country Selector: Country selection took {t_elapsed:.2f}ms"
+        log_message(log_msg, 0)
 
     except Exception as run_fault:
         log_message(f"Country Selector: Interface thread tracking exception: {run_fault}", 3)

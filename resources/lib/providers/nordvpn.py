@@ -11,16 +11,24 @@
 import os
 import re
 import socket
-import subprocess
 import sys
 import time
 import kodi_env
 from logger import log_message
+from providers.nm_manager import nm_register_profile
 from providers.nord_utils import fetch_nord_url
 from state_manager import get_active_vpn, write_state
 from vpn_utils import get_dynamic_prefixes
 
 NORD_DNS = "103.86.96.100, 103.86.99.100"
+
+
+def handle_settings_change(addon, config_dir):
+    token = addon.getSetting("vpn_token")
+    country_ids = addon.getSetting("selected_countries").strip()
+    if not token or not country_ids:
+        return False
+    return update(token, country_ids, config_dir)
 
 
 def update(token, country_ids, config_dir):
@@ -190,7 +198,7 @@ def update(token, country_ids, config_dir):
 
         if has_active_iface is True and active_vpn_name:
             log_message("NordVPN: Active interface detected. Scheduling deferred reconnect.", 1)
-            write_state('reconnect', str(active_vpn_name))
+            write_state('reconnect_target', str(active_vpn_name))
         return True
 
     if cancelled:
@@ -210,23 +218,8 @@ def finalize_configs(config_dir):
 
                     try:
                         conn_profile_name = f_name.replace(".conf", "")
-                        subprocess.run(
-                            ["nmcli", "connection", "delete", "id", conn_profile_name],
-                            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False
-                        )
-                        subprocess.run(
-                            ["nmcli", "connection", "import", "type", "wireguard", "file", full_path],
-                            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False
-                        )
-                        subprocess.run(
-                            ["nmcli", "connection", "down", conn_profile_name],
-                            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False
-                        )
-                        subprocess.run(
-                            ["nmcli", "connection", "modify", conn_profile_name,
-                             "connection.autoconnect", "no"],
-                            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False
-                        )
+                        if nm_register_profile(conn_profile_name, full_path) is False:
+                            log_message(f"NordVPN: Profile registration failure for {f_name}", 2)
                     except Exception as nm_err:
                         log_message(f"NordVPN: Profile registration failure for {f_name}: {nm_err}", 2)
             log_message("NordVPN: All config files converted and registered into NetworkManager.", 0)

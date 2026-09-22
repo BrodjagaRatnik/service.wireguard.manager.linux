@@ -38,6 +38,27 @@ SERVER_LIST_URL = "https://serverlist.piaservers.net/vpninfo/servers/v6"
 LAST_HANDSHAKE_TRACKER = {}
 
 
+def handle_settings_change(addon, config_dir):
+    user = addon.getSetting("pia_user").strip()
+    raw_pw = addon.getSetting("pia_pass").strip()
+    ids = addon.getSetting("selected_countries_pia").strip()
+
+    if not user or not raw_pw or not ids:
+        return False
+
+    pw = raw_pw
+
+    if not raw_pw.startswith("b64:"):
+        from wm_utils import safe_decrypt_password, safe_encrypt_password
+
+        pw = safe_decrypt_password(raw_pw)
+        encoded_string = safe_encrypt_password(pw)
+        addon.setSetting("pia_pass", encoded_string)
+        log_message("PIA: Plain text password saved cleanly.", 1)
+
+    return update(user, pw, ids, config_dir)
+
+
 def get_addon_path():
     return kodi_env.ADDON_DIR
 

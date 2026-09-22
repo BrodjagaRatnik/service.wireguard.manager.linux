@@ -158,7 +158,7 @@ def ensure_setup(addon_path, silent=False):
         setup_updated = False
         progress = xbmcgui.DialogProgress()
         progress.create("WireGuard Manager", "Starting system check...")
-        progress.update(20, "Checking Keymaps...")
+        progress.update(25, "Checking Keymaps...")
 
         if not os.path.exists(keymap_dest):
             try:
@@ -171,11 +171,11 @@ def ensure_setup(addon_path, silent=False):
             except Exception as e:
                 log_message(f"Setup Helper: Setup Error (Keymap): {e}", 3)
 
-        progress.update(40, "Migrating watchdog integration...")
+        progress.update(50, "Migrating watchdog integration...")
         if migrate_legacy_watchdog_unit() is True:
             setup_updated = True
 
-        progress.update(60, "Deploying PIA provider certificates...")
+        progress.update(75, "Deploying PIA provider certificates...")
         if not os.path.exists(cert_dest):
             try:
                 os.makedirs(os.path.dirname(cert_dest), exist_ok=True)
@@ -185,7 +185,7 @@ def ensure_setup(addon_path, silent=False):
             except Exception as e:
                 log_message(f"Setup Helper: Setup Error (Certificate Copy): {e}", 3)
 
-        progress.update(80, "Deploying desktop emergency recovery hooks...")
+        progress.update(85, "Deploying desktop emergency recovery hooks...")
         if not os.path.exists(recovery_dest):
             try:
                 shutil.copy2(recovery_source, recovery_dest)
@@ -211,7 +211,7 @@ def ensure_setup(addon_path, silent=False):
             except Exception as e:
                 log_message(f"Setup Helper: Setup Error (Recovery Deployment): {e}", 3)
 
-        progress.update(90, "Verifying VPN credentials...")
+        progress.update(95, "Verifying VPN credentials...")
         current_p_id = ADDON.getSettingInt("vpn_provider")
         has_creds = False
         if current_p_id == -1:
@@ -235,6 +235,8 @@ def ensure_setup(addon_path, silent=False):
         if setup_updated:
             log_message("Setup Helper: Success! Background tracking engines active.", 1)
             dialog.notify_setup_success()
+
+        return True
 
     except Exception as major_err:
         log_message(f"Setup Helper: Orchestration master failure: {major_err}", 3)
