@@ -34,6 +34,20 @@ except ImportError:
     from setup_utils import ensure_setup
 
 
+def _current_addon_version(addon_obj):
+    try:
+        return str(addon_obj.getAddonInfo("version"))
+    except Exception:
+        return ""
+
+
+def _setup_version_pending(addon_obj):
+    if addon_obj.getSettingBool("first_run") is False:
+        return True
+    stored_version = addon_obj.getSettingString("setup_version")
+    return stored_version != _current_addon_version(addon_obj)
+
+
 def _match_config_name(token):
     if not token:
         return None
@@ -349,9 +363,10 @@ def start():
 
     path = kodi_env.ADDON_DIR
 
-    if addon_obj.getSettingBool("first_run") is False:
+    if _setup_version_pending(addon_obj):
         if ensure_setup(path, silent=True) is True:
             addon_obj.setSettingBool("first_run", True)
+            addon_obj.setSettingString("setup_version", _current_addon_version(addon_obj))
             xbmc.executebuiltin("Container.Refresh")
 
     try:

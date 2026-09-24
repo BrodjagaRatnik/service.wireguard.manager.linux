@@ -52,6 +52,78 @@ def migrate_legacy_watchdog_unit():
         return False
 
 
+def deploy_uid_dispatcher(addon_path):
+    try:
+        profile_raw = xbmcvfs.translatePath("special://profile/addon_data/")
+        addon_id, _addon_ver = __import__('logger').get_addon_metadata()
+        deploy_dir = os.path.join(profile_raw, addon_id, "scripts")
+        dispatcher_source = os.path.join(addon_path, "resources", "data", "wg-uid-dispatcher.py.txt")
+        installer_source = os.path.join(addon_path, "resources", "data", "uid_dispatcher_install.py.txt")
+        dispatch_target = "/etc/NetworkManager/dispatcher.d/50-wg-uid-restore"
+
+        if os.path.exists(dispatch_target) is True:
+            return False
+        if not os.path.exists(dispatcher_source) or not os.path.exists(installer_source):
+            log_message("Setup Helper: UID dispatcher templates absent. Skipping deployment.", 0)
+            return False
+
+        os.makedirs(deploy_dir, exist_ok=True)
+        template_copy = os.path.join(deploy_dir, "wg-uid-dispatcher.py")
+        installer_copy = os.path.join(deploy_dir, "uid_dispatcher_install.py")
+        shutil.copy2(dispatcher_source, template_copy)
+        shutil.copy2(installer_source, installer_copy)
+        os.chmod(installer_copy, os.stat(installer_copy).st_mode | stat.S_IEXEC)
+
+        result = subprocess.run(
+            ["pkexec", installer_copy, template_copy],
+            stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, check=False
+        )
+        if result.returncode == 0:
+            log_message("Setup Helper: UID routing dispatcher installed via elevated context.", 1)
+            return True
+
+        log_message(
+            f"Setup Helper: Dispatcher installation declined or failed: {result.returncode}", 2
+        )
+        return False
+    except Exception as deploy_err:
+        log_message(f"Setup Helper: UID dispatcher deployment error: {deploy_err}", 3)
+        return False
+
+
+def remove_uid_dispatcher(addon_path):
+    try:
+        profile_raw = xbmcvfs.translatePath("special://profile/addon_data/")
+        addon_id, _addon_ver = __import__('logger').get_addon_metadata()
+        uninstaller_source = os.path.join(addon_path, "resources", "data", "uid_dispatcher_uninstall.py.txt")
+        deploy_dir = os.path.join(profile_raw, addon_id, "scripts")
+
+        if not os.path.exists(uninstaller_source):
+            log_message("Setup Helper: UID dispatcher uninstall template absent. Skipping removal.", 0)
+            return False
+
+        os.makedirs(deploy_dir, exist_ok=True)
+        uninstaller_copy = os.path.join(deploy_dir, "uid_dispatcher_uninstall.py")
+        shutil.copy2(uninstaller_source, uninstaller_copy)
+        os.chmod(uninstaller_copy, os.stat(uninstaller_copy).st_mode | stat.S_IEXEC)
+
+        result = subprocess.run(
+            ["pkexec", uninstaller_copy],
+            stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, check=False
+        )
+        if result.returncode == 0:
+            log_message("Setup Helper: UID routing dispatcher removed via elevated context.", 1)
+            return True
+
+        log_message(
+            f"Setup Helper: Dispatcher removal declined or failed: {result.returncode}", 2
+        )
+        return False
+    except Exception as removal_err:
+        log_message(f"Setup Helper: UID dispatcher removal error: {removal_err}", 3)
+        return False
+
+
 def perform_cleanup(silent=False):
     addon = kodi_env.get_addon_instance()
     home_dir = os.path.expanduser("~")
@@ -62,7 +134,7 @@ def perform_cleanup(silent=False):
 
     try:
         log_message("Setup Helper: Cleanup Starting factory reset...", 1)
-
+        remove_uid_dispatcher(kodi_env.ADDON_DIR)
         try:
             from vpn_utils import get_dynamic_prefixes
             prefixes = get_dynamic_prefixes()
@@ -110,6 +182,7 @@ def perform_cleanup(silent=False):
             addon.setSetting("selected_countries", "")
             addon.setSetting("selected_countries_pia", "")
             addon.setSetting("first_run", "false")
+            addon.setSetting("setup_version", "")
 
         keymap_file = xbmcvfs.translatePath("special://userdata/keymaps/wireguard_manager_key.xml")
         if os.path.exists(keymap_file) is True:
@@ -175,7 +248,7 @@ def ensure_setup(addon_path, silent=False):
         if migrate_legacy_watchdog_unit() is True:
             setup_updated = True
 
-        progress.update(75, "Deploying PIA provider certificates...")
+        progress.update(60, "Deploying PIA provider certificates...")
         if not os.path.exists(cert_dest):
             try:
                 os.makedirs(os.path.dirname(cert_dest), exist_ok=True)
@@ -185,7 +258,7 @@ def ensure_setup(addon_path, silent=False):
             except Exception as e:
                 log_message(f"Setup Helper: Setup Error (Certificate Copy): {e}", 3)
 
-        progress.update(85, "Deploying desktop emergency recovery hooks...")
+        progress.update(70, "Deploying desktop emergency recovery hooks...")
         if not os.path.exists(recovery_dest):
             try:
                 shutil.copy2(recovery_source, recovery_dest)
@@ -211,7 +284,11 @@ def ensure_setup(addon_path, silent=False):
             except Exception as e:
                 log_message(f"Setup Helper: Setup Error (Recovery Deployment): {e}", 3)
 
-        progress.update(95, "Verifying VPN credentials...")
+        progress.update(80, "Preparing selective routing hooks...")
+        if deploy_uid_dispatcher(addon_path) is True:
+            setup_updated = True
+
+        progress.update(90, "Verifying VPN credentials...")
         current_p_id = ADDON.getSettingInt("vpn_provider")
         has_creds = False
         if current_p_id == -1:

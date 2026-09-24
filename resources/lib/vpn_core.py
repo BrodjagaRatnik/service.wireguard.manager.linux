@@ -144,7 +144,7 @@ def check_for_updates(media_path, force_despite_tunnel=False):
                 f"oldest_file_age={file_age_seconds}, "
                 f"max_age={max_age_seconds}"
             )
-            log_message(log_msg, 1)
+            log_message(log_msg, 0)
 
             if file_age_seconds <= max_age_seconds:
                 log_message("Core: Update skipped. Configurations on disk are still fresh.", 0)

@@ -274,7 +274,7 @@ def fetch_vpn_metadata(interface_name):
             if res.returncode == 0 and body:
                 data = json.loads(body)
                 if "ip" in data:
-                    log_message(f"VPN_Utils: {log_msg} selected at {t_stamp}", 1)
+                    log_message(f"VPN_Utils: {log_msg} selected at {t_stamp}", 0)
                     return data.get("ip", "Unknown"), data.get("country", "??")
             err_detail = (res.stderr or "").strip().replace("\n", " ")[:120]
             if err_detail:

@@ -1,0 +1,49 @@
+#!/usr/bin/env python3
+""" ./resources/data/uid_dispatcher_uninstall.py.txt """
+
+import os
+import sys
+
+DISPATCH_NAME = "50-wg-uid-restore"
+DISPATCH_DIR = "/etc/NetworkManager/dispatcher.d"
+CONFIG_DIR = "/etc/wireguard-manager"
+CONFIG_NAME = "dispatcher.json"
+
+
+def remove_path_if_exists(target_path):
+    try:
+        if os.path.exists(target_path) is True:
+            os.remove(target_path)
+            return True
+    except OSError as remove_err:
+        sys.stderr.write(f"Uninstaller: Removal failed for {target_path}: {remove_err}\n")
+    return False
+
+
+def main():
+    dispatch_path = os.path.join(DISPATCH_DIR, DISPATCH_NAME)
+    config_path = os.path.join(CONFIG_DIR, CONFIG_NAME)
+
+    removed_dispatch = remove_path_if_exists(dispatch_path)
+    removed_config = remove_path_if_exists(config_path)
+
+    try:
+        config_dir_empty = not os.listdir(CONFIG_DIR)
+    except OSError:
+        config_dir_empty = False
+    if config_dir_empty is True:
+        remove_path_if_exists(CONFIG_DIR)
+
+    if removed_dispatch is False and removed_config is False:
+        sys.stderr.write("Uninstaller: Nothing to remove. Dispatcher was not installed.\n")
+        return 1
+
+    try:
+        os.remove(os.path.abspath(__file__))
+    except OSError:
+        pass
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
