@@ -3,9 +3,18 @@ CHANGELOG
 
 v1.0.7 (2026-09-24)
 
-- Selective routing (per-user VPN enforcement): optionally route only the Kodi user through the tunnel while all other processes (other users, system services, containers) stay on the default route. Installed via a one-time pkexec elevation prompt on first run. Survives profile regeneration and watchdog reconnects. See wiki: Installation & Setup, section 5.
-- Note: with the firewall killswitch enabled, non-tunneled outbound traffic may still be blocked at the iptables level - this is expected behavior of the killswitch, not the routing feature. Disable the killswitch if other processes need direct internet access.
-- Setup integrity check now runs once per add-on version: after updating, first start verifies your existing setup and fills in missing components (declining the elevation prompt stays permanent until cleanup/reset).
+Selective routing (per-user VPN enforcement): 
+- optionally route only the Kodi user through the tunnel while all other processes
+  (other users, system services, containers) stay on the default route.
+  Installed via a one-time pkexec elevation prompt on first run.
+  Survives profile regeneration and watchdog reconnects. See wiki: Installation & Setup, section 5.
+Note:
+- With the firewall killswitch enabled, non-tunneled outbound traffic may still be blocked at the
+ iptables level - this is expected behavior of the killswitch, not the routing feature.
+ Disable the killswitch if other processes need direct internet access.
+- Setup integrity check now runs once per add-on version: after updating, 
+  first start verifies your existing setup and fills in missing components 
+  (declining the elevation prompt stays permanent until cleanup/reset).
 - Minor: stable reconnect profile resolution, NM delete handling hardened.
 
 v1.0.6 (2026-09-22)
