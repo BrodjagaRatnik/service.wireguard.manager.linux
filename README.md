@@ -9,9 +9,20 @@
 
 ---
 
-A lightweight, high-performance Kodi service addon for standalone Linux distributions (Debian, Mint, Ubuntu, and LMDE).
+A lightweight, high-performance Kodi service addon for standalone Linux distributions
+(Debian, Raspberry Pi OS, Mint, Ubuntu, and LMDE).
 
-Built entirely in pure Python with a memory-isolated, lazy-loaded architecture, this tool manages WireGuard connections natively via NetworkManager (`nmcli`). It features a zero-leak, post-connect firewall killswitch with automatic local subnet routing to guarantee complete data privacy without blocking cryptographic handshake authentication tokens. Fully architecture-independent, it delivers a rock-solid experience that runs flawlessly on x86_64 HTPCs and standalone Debian installations. Includes an automated desktop emergency recovery tool to instantly purge stuck kernel routing states.
+Built entirely in pure Python with a memory-isolated, lazy-loaded architecture, this
+tool manages WireGuard connections natively via NetworkManager (`nmcli`). It features
+a zero-leak, post-connect firewall killswitch with automatic local subnet routing to
+guarantee complete data privacy without blocking cryptographic handshake
+authentication tokens. Fully architecture-independent, it delivers a rock-solid
+experience that runs flawlessly on x86_64 HTPCs, Raspberry Pi 5, and standalone Debian
+installations. Includes an automated desktop emergency recovery tool to instantly
+purge stuck kernel routing states.
+
+See the full validation matrix in the
+[Tested Distributions](https://github.com/BrodjagaRatnik/service.wireguard.manager.linux/wiki/Tested-Distributions) wiki page.
 
 ---
 
