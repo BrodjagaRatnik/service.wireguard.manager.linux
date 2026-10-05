@@ -48,11 +48,15 @@ See the full validation matrix in the
 
 ## Requirements
 
-- Linux Desktop (Debian, Mint, Ubuntu, LMDE)
+- Linux Desktop (Debian, Mint, Ubuntu, LMDE, Raspberry Pi OS, EndeavourOS ARM)
 - Kodi with Python 3 support (xbmc.python 3.0.1+)
 - NetworkManager with nmcli 1.36+ (WireGuard profile import support)
 - iptables (killswitch chain management)
 - curl
+
+See the [Requirements](https://github.com/BrodjagaRatnik/service.wireguard.manager.linux/wiki/Requirements)
+wiki page for per-distribution installation commands, binary verification
+steps, and the privilege requirements for the firewall killswitch.
 
 ## Installation
 
