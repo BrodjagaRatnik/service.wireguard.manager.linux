@@ -43,15 +43,6 @@ Built entirely in pure Python with a memory-isolated, lazy-loaded architecture, 
 - iptables (killswitch chain management)
 - curl
 
-Minimal install on a headless or stripped-down system:
-
-    sudo apt update && sudo apt install -y wireguard wireguard-tools curl network-manager iptables
-
-On a typical desktop installation, NetworkManager and iptables are already
-present, so this suffices:
-
-    sudo apt update && sudo apt install -y wireguard wireguard-tools curl
-
 ## Installation
 
 Install the addon from [Doemela's Kodi repo](https://github.com/BrodjagaRatnik/doemela-kodi-repo), then pick a provider, import your credentials, and connect via the addon menu. See [Installation & Setup](https://github.com/BrodjagaRatnik/service.wireguard.manager.linux/wiki/Installation-&-Setup).
