@@ -10,7 +10,7 @@
 ---
 
 A lightweight, high-performance Kodi service addon for standalone Linux distributions
-(Debian, Raspberry Pi OS, Mint, Ubuntu, and LMDE).
+(Debian, Raspberry Pi OS, Mint, Ubuntu, LMDE, ...).
 
 Built entirely in pure Python with a memory-isolated, lazy-loaded architecture, this
 tool manages WireGuard connections natively via NetworkManager (`nmcli`). It features
@@ -21,14 +21,14 @@ experience that runs flawlessly on x86_64 HTPCs, Raspberry Pi 5, and standalone 
 installations. Includes an automated desktop emergency recovery tool to instantly
 purge stuck kernel routing states.
 
-See the full validation matrix in the
-[Tested Distributions](https://github.com/BrodjagaRatnik/service.wireguard.manager.linux/wiki/Tested-Distributions) wiki page.
-
+See the full validation matrix in the [Tested Distributions](https://github.com/BrodjagaRatnik/service.wireguard.manager.linux/wiki/Tested-Distributions) wiki page.
 ---
-
 > [!NOTE]
 > ### ⚠️ — DISTRO TESTERS WANTED!
-> The NetworkManager (`nmcli`) core loop is fully validated on Debian and Mint systems. We are actively **seeking testers for other Linux distributions** (Fedora, Arch, openSUSE, Gentoo) to ensure compatibility with varying kernel routing structures and firewall frameworks.
+> The NetworkManager (`nmcli`) core loop is fully validated on Raspberry Pi OS, Debian,
+Ubuntu Desktop, LMDE, EndeavourOS ARM, Fedora 44 (KDE) and Mint systems. 
+We are actively **seeking testers for other Linux distributions** to ensure 
+compatibility with varying kernel routing structures and firewall frameworks.
 
 ## Providers
 
@@ -54,18 +54,17 @@ See the full validation matrix in the
 - iptables (killswitch chain management)
 - curl
 
-See the [Requirements](https://github.com/BrodjagaRatnik/service.wireguard.manager.linux/wiki/Requirements)
-wiki page for per-distribution installation commands, binary verification
-steps, and the privilege requirements for the firewall killswitch.
+See the [Requirements](https://github.com/BrodjagaRatnik/service.wireguard.manager.linux/wiki/Requirements) wiki page for per-distribution installation commands, 
+binary verification steps, and the privilege requirements for the firewall killswitch.
 
 ## Installation
 
-Install the addon from [Doemela's Kodi repo](https://github.com/BrodjagaRatnik/doemela-kodi-repo), then pick a provider, import your credentials, and connect via the addon menu. See [Installation & Setup](https://github.com/BrodjagaRatnik/service.wireguard.manager.linux/wiki/Installation-&-Setup).
+Install the addon from [Doemela's Kodi repo](https://github.com/BrodjagaRatnik/doemela-kodi-repo), then pick a provider, 
+import your credentials, and connect via the addon menu. See [Installation & Setup](https://github.com/BrodjagaRatnik/service.wireguard.manager.linux/wiki/Installation-&-Setup).
 
 ## Troubleshooting & documentation
 
-See the [wiki](https://github.com/BrodjagaRatnik/service.wireguard.manager.linux/wiki) — including
-[coexisting with other network setups](https://github.com/BrodjagaRatnik/service.wireguard.manager.linux/wiki/Coexisting-with-other-network-setups) (Docker/br-* known limitation).
+See the [wiki](https://github.com/BrodjagaRatnik/service.wireguard.manager.linux/wiki) — including [coexisting with other network setups](https://github.com/BrodjagaRatnik/service.wireguard.manager.linux/wiki/Coexisting-with-other-network-setups) (Docker/br-* known limitation).
 
 ## Issues
 
