@@ -2,12 +2,7 @@
 ![Size](https://img.shields.io/github/repo-size/BrodjagaRatnik/service.wireguard.manager.linux)
 ![Last Commit](https://shields.io/github/last-commit/BrodjagaRatnik/service.wireguard.manager.linux)
 ![Build Status](https://github.com/BrodjagaRatnik/service.wireguard.manager.linux/actions/workflows/test_addon.yml/badge.svg)
-
----
-
 # Multi-Provider WireGuard VPN Manager for Linux Desktop (NordVPN, PIA, Mullvad, Custom)
-
----
 
 A lightweight, high-performance Kodi service addon for standalone Linux distributions
 (Debian, Raspberry Pi OS, Mint, Ubuntu, LMDE, ...).
@@ -22,6 +17,7 @@ installations. Includes an automated desktop emergency recovery tool to instantl
 purge stuck kernel routing states.
 
 See the full validation matrix in the [Tested Distributions](https://github.com/BrodjagaRatnik/service.wireguard.manager.linux/wiki/Tested-Distributions) wiki page.
+
 ---
 > [!NOTE]
 > ### ⚠️ — DISTRO TESTERS WANTED!
